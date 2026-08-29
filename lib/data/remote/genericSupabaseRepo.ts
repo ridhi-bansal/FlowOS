@@ -61,7 +61,7 @@ export function createSupabaseRepo<T extends { id: string; user_id?: string; cre
 
     async update(id, patch) {
       const supabase = createClient();
-      const { data, error } = await supabase.from(table).update(patch).eq("id", id).select().single();
+      const { data, error } = await supabase.from(table).update(patch as any).eq("id", id).select().single();
       if (error) throw new Error(`${table}.update(${id}) failed: ${error.message}`);
       return data as T;
     },

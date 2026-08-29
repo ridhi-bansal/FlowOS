@@ -98,7 +98,7 @@ export async function migrateLocalDataToSupabase(): Promise<MigrationResult> {
   const imported: Record<string, number> = {};
   const errors: string[] = [];
 
-  async function insertAll<T extends Record<string, unknown>>(table: string, rows: T[]) {
+  async function insertAll<T extends object>(table: string, rows: T[]) {
     if (rows.length === 0) {
       imported[table] = 0;
       return;
