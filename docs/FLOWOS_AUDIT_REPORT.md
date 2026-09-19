@@ -65,7 +65,7 @@ during a stabilization pass:
   accounts, separate data) is implemented and audited below; shared
   workspaces/teams are not (item #14)
 
-These are legitimate ideas, not rejected — see the roadmap doc for sequencing.
+These are legitimate ideas, not rejected — see `docs/ROADMAP.md` for sequencing.
 
 ## E. Known risks
 
@@ -121,6 +121,11 @@ browser this session. Read that column literally, not as a soft "probably fine."
 ---
 
 ## Database / Supabase Audit
+
+For the living schema reference (table list, RLS pattern, migration flow —
+kept current as the schema evolves), see `docs/DATABASE.md`. What follows
+below is this session's point-in-time findings; it isn't rewritten as the
+schema changes, only at a genuine re-audit.
 
 ### Can User A access User B's data?
 

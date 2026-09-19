@@ -85,3 +85,19 @@ GOAL → PROJECT → TASK chain, progress derived live), Habits, Focus,
 Journal, Analytics, Coach, Settings, and a global command palette (⌘K) are
 built. Supabase Auth + Postgres + RLS + local-data import are implemented
 as of this session but not yet run against a live project.
+
+## Documentation
+
+This README stays high-level; the deeper technical detail lives under `docs/`.
+
+- `PROJECT_STATUS.md` — current state of the whole project, kept live.
+- `CHANGELOG.md` — dated history of changes.
+- `docs/ROADMAP.md` — current priorities, what's next, what's later.
+- `docs/DATABASE.md` — living reference for the Supabase schema and RLS.
+- `docs/DEPLOYMENT_GUIDE.md` — beginner-friendly Supabase → GitHub → Vercel
+  deployment walkthrough.
+- `docs/TESTING_CHECKLIST.md` — manual test steps (no automated tests yet).
+- `docs/FLOWOS_AUDIT_REPORT.md` — point-in-time codebase audit and the full
+  per-feature status table.
+- `AI_INSTRUCTIONS.md` — how future AI agents should work in this repo,
+  including how to keep this documentation set in sync with the code.

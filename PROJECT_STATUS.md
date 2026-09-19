@@ -9,6 +9,16 @@ a full audit report, testing checklist, and beginner deployment guide as
 separate documents (see `docs/` — not duplicated here to keep this file
 scannable). No new features added, per this session's explicit scope.
 
+## Related documentation
+
+This file is the current-state summary. For other angles on the project:
+`README.md` (intro/setup), `CHANGELOG.md` (dated history), `docs/ROADMAP.md`
+(what's next and why), `docs/DATABASE.md` (living schema reference),
+`docs/FLOWOS_AUDIT_REPORT.md` (point-in-time audit + the full feature
+inventory table with per-feature frontend/backend/tested columns),
+`docs/DEPLOYMENT_GUIDE.md`, `docs/TESTING_CHECKLIST.md`. `AI_INSTRUCTIONS.md`
+defines how all of these are meant to be kept in sync as the app changes.
+
 ## Current checkpoint
 
 **All 11 planned feature areas are built**: Dashboard, Tasks (incl.
@@ -31,8 +41,7 @@ verified" below before treating any of it as working.
 
 **Dashboard** — functional. Greeting, Top 3, Due Today/Overdue, Upcoming,
 Today's Schedule, What Should I Do Now, Progress (Goals+Projects merged
-into one card), Coach snippet, Quick Actions, Today's Rhythm (Focus+Habits
-merged), Recent Activity. Kept deliberately compact (merged what would've
+into one card), Coach snippet, Quick Actions, Today's Rhythm (Focus+Habits merged), Recent Activity. Kept deliberately compact (merged what would've
 been 8 cards down to 6) per "avoid excessive cards."
 
 **Tasks** — functional. Full CRUD, priority, due date/time, estimated

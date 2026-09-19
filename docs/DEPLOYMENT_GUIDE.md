@@ -337,43 +337,6 @@ Best 1–2 per topic, official sources preferred.
 
 ## Part 15 — Product Roadmap After Deployment
 
-Prioritized by user value, differentiation, and complexity — not everything
-should be built next, only the top few.
-
-**Do first (highest value, lowest risk):**
-1. **Fix whatever the two-user isolation test and general testing checklist
-   surface** — this must happen before showing FlowOS to anyone else,
-   full stop.
-2. **A visual/aesthetic pass on Focus** (item #22) — cheap, high perceived-
-   quality improvement, no architecture risk.
-3. **Analytics: Focus Minutes as a line graph** (item #23) — trivial change
-   (recharts already supports it), improves a page people will actually
-   look at regularly.
-
-**Do next (real differentiation, moderate complexity):**
-4. **Habits: monthly/custom frequency** — closes an obvious gap in an
-   already-built feature rather than starting something new.
-5. **Journal: AI-generated prompts from user data** (item #16) — this is
-   FlowOS's most differentiated possible feature (a coach that actually
-   knows your week informing your reflection prompts), but do it with the
-   *existing* local rule-based approach first (e.g. "you mentioned X task
-   three times this week, has that been on your mind?") before reaching
-   for an external AI API.
-
-**Do later (bigger scope, real cost/risk):**
-6. **External AI API integration** — only after the rule-based Coach has
-   been used for a while and you know specifically where it falls short.
-   Adding a paid API before knowing that is guessing.
-7. **Google Calendar / Todoist integrations** — real user value but real
-   complexity (OAuth flows, sync conflict handling) — worth doing once the
-   core product has real usage validating it's worth the investment.
-8. **Multi-user collaboration** (shared projects/teams) — a different
-   product shape (single-user → multi-user-per-workspace), don't start
-   this casually.
-9. **Payments/subscriptions** — only once there's something people
-   actually want to pay for, which you'll know from usage, not guessing.
-
-**Consciously not prioritized without more information:** customer
-support tooling and product analytics/telemetry (items #12–13) — these
-matter once you have users, not before. Add them when you're about to
-actually launch to people other than yourself.
+Moved to `docs/ROADMAP.md`, alongside the rest of the project's priority
+list (kept here previously; a deployment guide isn't the right home for a
+living roadmap that changes independently of deployment steps).
