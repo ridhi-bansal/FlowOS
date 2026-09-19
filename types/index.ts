@@ -93,8 +93,10 @@ export interface Habit {
 
 export interface HabitLog {
   id: string;
+  user_id?: string;
   habit_id: string;
   logged_date: string;
+  created_at?: string;
 }
 
 export interface CalendarEvent {
