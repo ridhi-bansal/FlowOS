@@ -35,13 +35,15 @@ lib/data/       Repository<T> interface + the ONLY import point for data
                 Supabase (remote/) per-entity based on env config.
 lib/auth/       Same pattern for auth: AuthProvider interface, local vs
                 Supabase implementation, single swap point (index.ts).
-lib/ai/         Same pattern for AI: mock provider (default) vs a real
-                Anthropic-backed provider via AI_PROVIDER env var.
+lib/ai/         Server-only AI provider scaffolding (`import "server-only"`).
+                Reserved for backend route handlers and external model
+                providers. Client code must NOT import this module.
 lib/services/   Domain logic per feature (taskService, projectService,
                 goalService, eventService, habitService, focusService,
                 journalService, analyticsService, coachService,
                 whatNowService, migrationService) — built on lib/data,
-                never on IndexedDB/Supabase directly.
+                never on IndexedDB/Supabase directly. Coach and
+                whatNowService run locally here as deterministic rule engines.
 lib/supabase/   Browser/server/admin Supabase clients + isSupabaseConfigured().
 lib/utils/date.ts   Timezone-correct "what day is it" helpers — see below.
 lib/db/         Generic IndexedDB wrapper used by lib/data/local/*.
@@ -51,8 +53,14 @@ database/supabase-schema.sql   Full Postgres schema, RLS policies,
 ```
 
 **The rule going forward:** UI and page code imports repositories from
-`@/lib/data`, auth from `@/lib/auth`, and AI functions from `@/lib/ai` —
-never from a `local/`, `remote/`, or `providers/` subfolder directly.
+`@/lib/data`, auth from `@/lib/auth`, and domain services from
+`@/lib/services` — never from a `local/`, `remote/`, or `providers/`
+subfolder directly.
+
+**Important regarding AI:** Client components must **never** import from
+`@/lib/ai` (it is marked `import "server-only"`). The Productivity Coach and
+"What should I do now?" are client-safe, deterministic, rule-based engines
+housed in `@/lib/services/coachService.ts` and `@/lib/services/whatNowService.ts`.
 
 ### Timezone handling
 
@@ -80,24 +88,25 @@ key (Supabase dashboard → Settings → API), and run the SQL in
 
 See `PROJECT_STATUS.md` for the current checkpoint in detail, including
 what's genuinely verified vs. only statically checked. Short version: all
-of Dashboard, Tasks (with subtasks), Calendar, Projects, Goals (the full
-GOAL → PROJECT → TASK chain, progress derived live), Habits, Focus,
-Journal, Analytics, Coach, Settings, and a global command palette (⌘K) are
-built. Supabase Auth + Postgres + RLS + local-data import are implemented
-as of this session but not yet run against a live project.
+11 core feature areas (Dashboard, Tasks with subtasks, Calendar, Projects,
+Goals with live progress derivation, Habits, Focus, Journal, Analytics,
+Coach, and Settings), plus the global command palette (⌘K) and light/dark
+theming, are built and deployed.
+
+Cloud mode (Supabase Auth + Postgres + Row Level Security) is live on
+Vercel and owner-verified for authentication, persistence, and multi-user
+isolation. Local mode remains fully available for offline development.
 
 ## Documentation
 
-This README stays high-level; the deeper technical detail lives under `docs/`.
+This README stays high-level; deeper technical detail lives under `docs/` and root:
 
 - `PROJECT_STATUS.md` — current state of the whole project, kept live.
 - `CHANGELOG.md` — dated history of changes.
+- `DEPLOYMENT.md` — developer deployment workflows, environment variable rules, and safety protocols.
 - `docs/ROADMAP.md` — current priorities, what's next, what's later.
 - `docs/DATABASE.md` — living reference for the Supabase schema and RLS.
-- `docs/DEPLOYMENT_GUIDE.md` — beginner-friendly Supabase → GitHub → Vercel
-  deployment walkthrough.
-- `docs/TESTING_CHECKLIST.md` — manual test steps (no automated tests yet).
-- `docs/FLOWOS_AUDIT_REPORT.md` — point-in-time codebase audit and the full
-  per-feature status table.
-- `AI_INSTRUCTIONS.md` — how future AI agents should work in this repo,
-  including how to keep this documentation set in sync with the code.
+- `docs/DEPLOYMENT_GUIDE.md` — beginner-friendly Supabase → GitHub → Vercel deployment walkthrough.
+- `docs/TESTING_CHECKLIST.md` — manual test steps (owner-verified tests recorded).
+- `docs/FLOWOS_AUDIT_REPORT.md` — point-in-time codebase audit snapshot.
+- `AI_INSTRUCTIONS.md` — how future AI agents should work in this repo, including how to keep this documentation set in sync with the code.

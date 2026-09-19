@@ -45,10 +45,11 @@ it instead.
 | `README.md` | High-level intro for humans: what FlowOS is, stack, setup, links to deeper docs. Not a technical manual. | When capabilities or setup steps change |
 | `PROJECT_STATUS.md` | The current state, answering "if I opened FlowOS today, where does it stand?" | Every meaningful change |
 | `CHANGELOG.md` | Dated historical log of changes. Never rewritten, only appended to. | Every meaningful change |
+| `DEPLOYMENT.md` | Developer rules, safety guidelines, environment variable handling, and Git/Vercel workflow standards. | When engineering or safety rules change |
 | `docs/ROADMAP.md` | Current priorities / next / future / completed. Priorities, not commitments. | When priorities actually shift |
 | `docs/DATABASE.md` | Living reference for the Supabase schema, RLS pattern, migration flow. | When the schema or data layer changes |
-| `docs/DEPLOYMENT_GUIDE.md` | Actual deployment steps (Supabase → GitHub → Vercel). | When the deployment process changes |
-| `docs/TESTING_CHECKLIST.md` | Manual test steps (no automated tests exist yet). | When a feature needs new test steps |
+| `docs/DEPLOYMENT_GUIDE.md` | Step-by-step setup guide for beginner deployment (Supabase → GitHub → Vercel). | When the deployment setup process changes |
+| `docs/TESTING_CHECKLIST.md` | Manual test steps (recording owner-verified and pending tests). | When a feature needs new test steps |
 | `docs/FLOWOS_AUDIT_REPORT.md` | Point-in-time audit findings. Historical — don't rewrite for small changes, only at a genuine re-audit. | Only at a full re-audit |
 
 If a new feature is genuinely complex enough to need its own document
@@ -87,7 +88,8 @@ UPDATE DOCUMENTATION → CONSISTENCY CHECK → COMMIT**
      `docs/AUTHENTICATION.md` if this area gets complex enough to need one;
      it doesn't yet — auth is currently covered in `docs/DATABASE.md`'s RLS
      section and `README.md`'s architecture overview).
-   - Does it change deployment? → `docs/DEPLOYMENT_GUIDE.md`.
+   - Does it change developer workflow or deployment safety rules? → `DEPLOYMENT.md`.
+   - Does it change deployment setup or hosting configuration? → `docs/DEPLOYMENT_GUIDE.md`.
    - Does it change how the feature should be tested? →
      `docs/TESTING_CHECKLIST.md`.
    - Does it introduce a substantial new subsystem? → a new
@@ -110,10 +112,11 @@ UPDATE DOCUMENTATION → CONSISTENCY CHECK → COMMIT**
    - The `CHANGELOG.md` entry describes what actually changed.
    - Architecture/database/deployment/testing docs match what the code
      actually does, not what was planned.
-   - No document claims production verification, "all tests pass," or
-     "feature complete" unless that was actually done and verified in
-     this session. Use "not verified" / "requires manual verification" /
-     "pending production testing" when something is genuinely unknown.
+   - Clearly distinguish OWNER-SIDE LIVE VERIFICATION from AI-SIDE
+     STATIC REPOSITORY VERIFICATION. No document should claim live production
+     verification unless verified live by the owner or executed directly.
+     Use "owner-verified live" when confirmed by the project owner, and
+     "statically verified" / "pending live verification" where appropriate.
 8. **Commit** — implementation and its documentation updates go in the
    same commit whenever appropriate (see Git section below), so the two
    never drift apart in history.
@@ -125,9 +128,9 @@ step.
 ## Status vocabulary
 
 Use consistently in `PROJECT_STATUS.md` and `docs/ROADMAP.md`:
-`Complete` (built and verified), `Implemented, not verified` (real code,
-not run/tested — this is FlowOS's current status for everything
-Supabase-related), `In Progress`, `Planned`, `Blocked` (state the reason).
+`Complete` (built and verified), `Owner-verified live` (verified in production by project owner),
+`Implemented, not verified` (real code, not run/tested live), `In Progress`,
+`Planned`, `Blocked` (state the reason).
 
 ## Git
 

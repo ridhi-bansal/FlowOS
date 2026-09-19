@@ -9,6 +9,17 @@ wasn't recorded at the time.
 
 ---
 
+## [Unreleased] — 2026-09-19
+
+### Changed
+- Aligned documentation across `PROJECT_STATUS.md`, `README.md`, `docs/ROADMAP.md`, and `docs/TESTING_CHECKLIST.md` to reflect verified production deployment on Vercel and Supabase cloud mode.
+- Documented owner-side live verification of Supabase Auth, cloud persistence, and multi-tenant User A vs. User B isolation.
+- Clarified that `lib/ai` is a server-only module and that the Productivity Coach and "What Should I Do Now" are client-side deterministic rule-based services in `lib/services/`.
+- Clarified relationship between root `DEPLOYMENT.md` (developer rules & safety) and `docs/DEPLOYMENT_GUIDE.md` (setup guide) in `AI_INSTRUCTIONS.md`.
+- Updated testing checklist to record owner-verified tests while keeping migration and live password reset flows pending.
+
+---
+
 ## [Baseline] — 2026-09-19
 
 This changelog was initialized this session, after the fact. FlowOS already

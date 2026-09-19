@@ -4,6 +4,11 @@ Session goal: stabilize before real-world testing, not add features. Everything
 below reflects an actual inspection of the current codebase (100 files), not a
 summary of past session notes.
 
+> **Historical Note:** This report captures a point-in-time audit prior to live
+> deployment. The cloud-mode items marked "not run" below have since been deployed
+> to Vercel and Supabase and verified in production by the project owner (see
+> `PROJECT_STATUS.md` for the current live status).
+
 ---
 
 ## A. What was inspected

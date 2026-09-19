@@ -1,41 +1,39 @@
 # PROJECT_STATUS.md
 
-Last updated: this session — final stabilization pass before real-world
-testing. Fixed 8 concrete bugs (mode-aware copy, stale state, mobile
-Calendar layout, missing Escape-to-close on all 8 modals, heading/typography
-polish, Coach accessibility, theme flash on load). Re-verified the previous
-session's Supabase migration and timezone fixes are still intact. Produced
-a full audit report, testing checklist, and beginner deployment guide as
-separate documents (see `docs/` — not duplicated here to keep this file
-scannable). No new features added, per this session's explicit scope.
+Last updated: Documentation and production-verification alignment pass.
+Vercel deployment is live and Supabase is live in production running in cloud
+mode. Supabase authentication, cloud persistence, and multi-tenant User A vs.
+User B data isolation have been manually tested and verified in production by
+the project owner. Local mode remains fully available and functional for offline
+development. TypeScript compilation (0 errors) and Next.js production build
+(18 routes generated) have been verified statically by the AI agent.
 
 ## Related documentation
 
 This file is the current-state summary. For other angles on the project:
 `README.md` (intro/setup), `CHANGELOG.md` (dated history), `docs/ROADMAP.md`
 (what's next and why), `docs/DATABASE.md` (living schema reference),
-`docs/FLOWOS_AUDIT_REPORT.md` (point-in-time audit + the full feature
-inventory table with per-feature frontend/backend/tested columns),
-`docs/DEPLOYMENT_GUIDE.md`, `docs/TESTING_CHECKLIST.md`. `AI_INSTRUCTIONS.md`
-defines how all of these are meant to be kept in sync as the app changes.
+`docs/FLOWOS_AUDIT_REPORT.md` (point-in-time audit snapshot),
+`docs/DEPLOYMENT_GUIDE.md` (beginner setup guide), `DEPLOYMENT.md` (developer
+rules & safety), `docs/TESTING_CHECKLIST.md` (test procedures).
+`AI_INSTRUCTIONS.md` defines how all of these are meant to be kept in sync as
+the app changes.
 
 ## Current checkpoint
 
-**All 11 planned feature areas are built**: Dashboard, Tasks (incl.
-subtasks), Calendar, Projects, Goals, Habits, Focus, Journal, Analytics,
-Coach, Settings — plus a global command palette (⌘K) and theme switching.
-The app now runs in one of two modes:
+**All 11 planned feature areas are built and deployed**: Dashboard, Tasks
+(incl. subtasks), Calendar, Projects, Goals, Habits, Focus, Journal,
+Analytics, Coach, Settings — plus a global command palette (⌘K) and theme
+switching. The app runs in one of two modes:
 
-- **Local mode** (no env vars set): IndexedDB + localStorage, as before.
+- **Local mode** (no env vars set): IndexedDB + localStorage (for local/offline development).
 - **Cloud mode** (`NEXT_PUBLIC_SUPABASE_URL`/`NEXT_PUBLIC_SUPABASE_ANON_KEY` set):
-  Supabase Auth + Postgres, RLS-protected, real multi-user persistence.
+  Supabase Auth + Postgres, RLS-protected, real multi-user persistence (active in production).
 
-**Not yet done, and important:** none of the Supabase-mode code has been
-run against a live project or compiled — this sandbox has no network
-access (confirmed repeatedly across sessions). Everything below marked
-"implemented" is real, complete source code, verified only by import
-resolution and manual tracing, not by execution. See "What's actually
-verified" below before treating any of it as working.
+**Production status summary:**
+- **OWNER-SIDE LIVE VERIFICATION**: Vercel deployment is live; Supabase project is live; production is running in cloud mode; Supabase Auth is tested; cloud persistence is tested; User A / User B isolation is manually verified; local mode remains functional.
+- **AI-SIDE STATIC CODE VERIFICATION**: `npm run typecheck` (`tsc --noEmit`) passes with 0 errors; `npm run build` (`next build`) compiles successfully (all 18 routes + middleware); swap points (`lib/data/index.ts`, `lib/auth/index.ts`) statically verified; date utilities centralized.
+- **PENDING REAL-WORLD VERIFICATION**: Local-to-cloud migration flow (`lib/services/migrationService.ts`, Test 21); live email delivery for password reset; live observation across a DST transition.
 
 ## Feature status
 
@@ -204,57 +202,37 @@ to the real signed-in user). Local row ids are already valid UUIDs
   account system" unconditionally — now correctly describes cloud mode
   when active.
 
-## What's actually verified (vs. only statically checked)
+## What is actually verified (Owner-side vs. AI-side)
 
-Every session has carried this same caveat, and it still applies: **no
-network access in this sandbox**, so nothing Supabase-related has been
-compiled or run. Verification this session was: (a) every `@/...` import
-resolves to a real file — checked after every batch of changes, (b)
-manual tracing of the auth/data/migration flows described above, (c) the
-two hazards in section 4 were caught by manually tracing what happens to
-a row's `user_id` end-to-end, not by running the code. This is a real gap
-— see Recommended next step.
+FlowOS distinguishes strictly between owner-side live environment testing and
+AI-side static repository verification:
 
-## Known limitations
+### Owner-Side Live Verification (Production)
+- **Vercel deployment is live**: The application builds and serves in production.
+- **Supabase project is live**: Production is running in cloud mode backed by Supabase.
+- **Supabase authentication**: Tested and verified (sign-up, log in, session persistence).
+- **Cloud persistence**: Entity creation and updates persist across sessions in Supabase.
+- **Multi-user isolation (RLS)**: User A vs. User B isolation verified — neither user can see or alter the other's tasks, projects, goals, or records.
+- **Local mode**: Remains available and operational for local/offline testing without environment variables.
 
-- **Nothing has been run against a live Supabase project.** Schema
-  correctness, RLS policy correctness, and the full auth/data/migration
-  flow are unverified beyond static review.
-- Migration is all-or-nothing per table (no partial-row conflict
-  resolution) and doesn't migrate `milestones`, `tags`, `areas`
-  attachments, or `reviews`/`coach_conversations` — those aren't
-  populated by any current UI feature, so there's nothing to migrate yet,
-  but note it if that changes.
-- `lib/supabase/server.ts` and `admin.ts` are unused by the app so far —
-  all current Supabase access is client-side via `lib/supabase/client.ts`
-  (via the generic remote repos). They're there for when a server-side
-  need arises (e.g. a future API route), not currently exercised.
-- Carried over from earlier sessions, still true: sidebar highlights both
-  "Tasks" and "Inbox" at once; `ProjectDetailModal`/`GoalDetailModal`'s
-  edit flow closes both modals on save rather than returning to a
-  refreshed detail view; no automated tests exist anywhere in the project.
+### AI-Side Static Code Verification (Repository)
+- **TypeScript compilation**: `npm run typecheck` (`tsc --noEmit`) passes with 0 errors.
+- **Production build**: `npm run build` (`next build`) compiles successfully (all 18 static routes generated, middleware bundled).
+- **Swap-point integrity**: Statically traced `isSupabaseConfigured()`, `@/lib/data`, and `@/lib/auth`.
+- **Date utility standardization**: Centralized `lib/utils/date.ts` usage confirmed across services.
 
-## Remaining before Vercel deployment
+## Known limitations & pending items
 
-1. Actually run this locally against a real Supabase project and verify
-   the full flow (see the numbered testing checklist in the final report
-   for this session).
-2. Create the Supabase project, run `database/supabase-schema.sql`, set
-   env vars.
-3. Decide on and configure Supabase Auth email settings (confirmation
-   on/off, email templates, SMTP if not using Supabase's default).
-4. Set `NEXT_PUBLIC_SITE_URL` to the real deployed domain (used in
-   password-reset redirect links).
-5. Everything explicitly out of scope per this session's instructions:
-   Google Calendar, Todoist, payments, subscriptions, external AI API,
-   production analytics/support tooling — none started.
+- **Local-to-cloud migration (Test 21)** has not yet been executed end-to-end on live data.
+- **Password reset live delivery**: Requires live email verification with Supabase redirect URLs configured.
+- **Query limits**: `genericSupabaseRepo.ts` queries currently omit explicit pagination/limits, subject to Supabase's default 1,000-row PostgREST ceiling on very large datasets.
+- Migration is all-or-nothing per table and currently does not migrate `milestones`, `tags`, `areas` attachments, or `reviews`/`coach_conversations` (no active UI writes to these yet).
+- `lib/supabase/server.ts` and `admin.ts` are reserved for server-side route handlers / webhooks, not currently exercised by client components.
+- No automated test suite (e.g. Vitest/Playwright) exists yet; all verified flows are from manual testing.
 
-## Recommended next step
+## Next priorities
 
-Same standing recommendation as every session, now higher-stakes than
-before: get this running for real. Specifically — create a throwaway
-Supabase project, run the schema, set env vars, sign up two separate test
-accounts, and verify: (a) each sees only their own data, (b) the full
-create-task→appears-on-dashboard→contributes-to-project/goal-progress
-chain works end-to-end, (c) the local-data import works without
-duplicating or dropping anything. Do this before adding anything new.
+1. **Verify local-to-cloud migration (Test 21)** on a live test account with real sample data.
+2. **ESLint non-interactive config**: Add a `.eslintrc.json` so `npm run lint` runs non-interactively in CI.
+3. **Type alignment**: Add `user_id?: string` to `HabitLog` in `types/index.ts`.
+4. **Planned feature sequence**: Focus timer aesthetic pass, Analytics line graph for focus minutes, and habit custom frequencies (see `docs/ROADMAP.md`).

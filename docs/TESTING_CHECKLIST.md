@@ -189,11 +189,13 @@ open covering the content.
 
 ---
 
-## Cloud mode tests (only after you've connected Supabase — see the
-deployment guide)
+## Cloud mode tests
 
-## 18. Supabase signup
+> **Status note:** Tests 18, 19, and 20 have been executed and **verified in production by the project owner**. Test 21 (Local → Cloud migration) and Test 22 (Password reset) remain pending live verification.
 
+## 18. Supabase signup [COMPLETED — Owner-Verified Live]
+
+**Status:** Verified live in production.
 **Do:** With `.env.local` configured and a fresh browser (or incognito),
 sign up with a real email.
 **Should see:** Either straight into the dashboard, or (if your Supabase
@@ -201,16 +203,18 @@ project requires email confirmation) a message telling you to check your
 email — this is expected, not a bug.
 **Failure:** A raw/unhandled error instead of a clear message either way.
 
-## 19. Supabase persistence
+## 19. Supabase persistence [COMPLETED — Owner-Verified Live]
 
+**Status:** Verified live in production.
 **Do:** Create a task, goal, project. Refresh. Log out, log back in.
 **Should see:** Everything still there.
 **Failure:** Data missing after refresh or re-login (check the Supabase
 dashboard's Table Editor to see if the row exists there at all — narrows
 down whether it's a save problem or a fetch problem).
 
-## 20. User A vs. User B isolation — the most important cloud test
+## 20. User A vs. User B isolation — the most important cloud test [COMPLETED — Owner-Verified Live]
 
+**Status:** Verified live in production.
 **Do:** In one browser, sign up as User A, create 3–4 tasks with
 distinctive names. In a second browser (or incognito window), sign up as
 User B with a different email.
@@ -220,8 +224,9 @@ visible anywhere, in any page, including Analytics and Coach.
 not deploy — this means RLS isn't working and is a real security problem,
 not a cosmetic bug.
 
-## 21. Local → Cloud migration
+## 21. Local → Cloud migration [PENDING — Not yet verified live]
 
+**Status:** Implementation complete; pending live execution with real data.
 **Do:** With existing local-mode data (from your earlier testing) and a
 Supabase account connected, go to Settings → "Import local data" → "Check
 for local data" → review the counts → "Import to my account."
@@ -231,3 +236,15 @@ for local data" → review the counts → "Import to my account."
 delete it) — you can then use "Reset local data" to clean it up once
 you've confirmed the cloud copy looks right.
 **Failure:** Errors during import, duplicated data, or missing tables.
+
+## 22. Password reset flow [PENDING — Requires live email & redirect verification]
+
+**Status:** Implementation complete; pending live email delivery verification.
+**Do:** On `/login`, click "Forgot password?", enter your registered email,
+submit. Check your inbox for the recovery email, click the link, set a new
+password on `/reset-password`, and log in with the new credentials.
+**Should see:** Recovery email arrives promptly with a redirect link back to
+the live site's `/reset-password` page; new password updates the account and
+allows successful login.
+**Failure:** Recovery email not delivered, link redirects to `localhost` instead
+of production domain, or token validation fails.
