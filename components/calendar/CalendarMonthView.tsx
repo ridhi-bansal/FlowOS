@@ -1,13 +1,13 @@
 "use client";
 
-import type { CalendarEvent } from "@/types";
+import type { CalendarDisplayEvent } from "@/types";
 import { groupEventsByDay, toDateKey, startOfMonth, endOfMonth, addDays } from "@/lib/services/eventService";
 
 interface Props {
   monthAnchor: Date;
-  events: CalendarEvent[]; // real events + synthetic task-deadline markers
+  events: CalendarDisplayEvent[]; // real events + synthetic task-deadline markers + Google overlays
   onDayClick: (dateKey: string) => void;
-  onEventClick: (event: CalendarEvent) => void;
+  onEventClick: (event: CalendarDisplayEvent) => void;
   todayKey: string;
 }
 
@@ -51,25 +51,42 @@ export function CalendarMonthView({ monthAnchor, events, onDayClick, onEventClic
             >
               <div className="small" style={{ fontWeight: isToday ? 800 : 600, marginBottom: 6 }}>{d.getDate()}</div>
               <div className="stack" style={{ gap: 3 }}>
-                {dayEvents.slice(0, MAX_VISIBLE_PER_DAY).map((e) => (
-                  <button
-                    key={e.id}
-                    className="small"
-                    onClick={(evt) => {
-                      evt.stopPropagation();
-                      if (e.kind !== "task") onEventClick(e);
-                    }}
-                    style={{
-                      textAlign: "left", background: e.kind === "task" ? "transparent" : "var(--surface2)",
-                      border: e.kind === "task" ? "1px dashed var(--border)" : "none",
-                      borderRadius: 6, padding: "2px 5px", overflow: "hidden", textOverflow: "ellipsis",
-                      whiteSpace: "nowrap", cursor: e.kind === "task" ? "default" : "pointer",
-                    }}
-                    title={e.kind === "task" ? `Task due: ${e.title}` : e.title}
-                  >
-                    {e.kind === "task" ? "◇ " : ""}{e.title}
-                  </button>
-                ))}
+                {dayEvents.slice(0, MAX_VISIBLE_PER_DAY).map((e) => {
+                  const isGoogle = "source" in e && e.source === "google";
+                  return (
+                    <button
+                      key={e.id}
+                      className="small"
+                      onClick={(evt) => {
+                        evt.stopPropagation();
+                        if (e.kind !== "task") onEventClick(e);
+                      }}
+                      style={{
+                        textAlign: "left",
+                        background: e.kind === "task" ? "transparent" : "var(--surface2)",
+                        border: e.kind === "task" ? "1px dashed var(--border)" : isGoogle ? "1px solid color-mix(in srgb, var(--accent) 40%, var(--border))" : "none",
+                        borderLeft: isGoogle ? "2px solid var(--accent)" : undefined,
+                        borderRadius: 6,
+                        padding: "2px 5px",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                        cursor: e.kind === "task" ? "default" : "pointer",
+                      }}
+                      title={e.kind === "task" ? `Task due: ${e.title}` : isGoogle ? `Google: ${e.title}` : e.title}
+                      aria-label={
+                        isGoogle
+                          ? `Google Calendar event: ${e.title}`
+                          : e.kind === "task"
+                          ? `Task due: ${e.title}`
+                          : `Event: ${e.title}`
+                      }
+                      tabIndex={e.kind === "task" ? -1 : 0}
+                    >
+                      {e.kind === "task" ? "◇ " : isGoogle ? "G • " : ""}{e.title}
+                    </button>
+                  );
+                })}
                 {dayEvents.length > MAX_VISIBLE_PER_DAY && (
                   <span className="small muted">+{dayEvents.length - MAX_VISIBLE_PER_DAY} more</span>
                 )}

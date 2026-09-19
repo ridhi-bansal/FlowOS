@@ -111,6 +111,23 @@ export interface CalendarEvent {
   notes: string | null;
 }
 
+export interface ExternalCalendarEvent {
+  id: string;
+  source: "google";
+  title: string;
+  description: string | null;
+  start_at: string;
+  end_at: string;
+  all_day: boolean;
+  location: string | null;
+  kind: "event";
+  color: string | null;
+  html_link?: string;
+  read_only: true;
+}
+
+export type CalendarDisplayEvent = CalendarEvent | ExternalCalendarEvent;
+
 export interface FocusSession {
   id: string;
   user_id: string;

@@ -1,11 +1,11 @@
 "use client";
 
-import type { CalendarEvent } from "@/types";
+import type { CalendarDisplayEvent, CalendarEvent } from "@/types";
 
 interface Props {
   dateKey: string;
-  events: CalendarEvent[]; // already filtered to this day, real events + task markers
-  onEventClick: (event: CalendarEvent) => void;
+  events: CalendarDisplayEvent[]; // already filtered to this day, real events + task markers + Google overlays
+  onEventClick: (event: CalendarDisplayEvent) => void;
   onAddEvent: () => void;
 }
 
@@ -39,30 +39,61 @@ export function CalendarDayAgenda({ dateKey, events, onEventClick, onAddEvent }:
         </div>
       ) : (
         <div className="stack" style={{ gap: 10 }}>
-          {sorted.map((e) => (
-            <div
-              key={e.id}
-              className="row"
-              style={{
-                gap: 12, padding: "10px 12px", borderRadius: 10,
-                background: e.kind === "task" ? "transparent" : "var(--surface2)",
-                border: e.kind === "task" ? "1px dashed var(--border)" : "none",
-                cursor: e.kind === "task" ? "default" : "pointer",
-              }}
-              onClick={() => e.kind !== "task" && onEventClick(e)}
-            >
-              <div className="muted small" style={{ width: 70, flex: "none" }}>
-                {e.kind === "task" ? "Due" : formatTime(e.start_at)}
-              </div>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontWeight: 600, fontSize: 14 }}>{e.title}</div>
-                <div className="task-meta">
-                  <span className="tag">{KIND_LABEL[e.kind]}</span>
-                  {e.location && <span className="tag">{e.location}</span>}
+          {sorted.map((e) => {
+            const isGoogle = "source" in e && e.source === "google";
+            const isAllDay = "all_day" in e && Boolean(e.all_day);
+            const timeLabel = e.kind === "task" ? "Due" : isAllDay ? "All day" : formatTime(e.start_at);
+
+            return (
+              <div
+                key={e.id}
+                className="row"
+                style={{
+                  gap: 12, padding: "10px 12px", borderRadius: 10,
+                  background: e.kind === "task" ? "transparent" : "var(--surface2)",
+                  border: e.kind === "task" ? "1px dashed var(--border)" : isGoogle ? "1px solid color-mix(in srgb, var(--accent) 30%, var(--border))" : "none",
+                  borderLeft: isGoogle ? "3px solid var(--accent)" : undefined,
+                  cursor: e.kind === "task" ? "default" : "pointer",
+                }}
+                role={e.kind !== "task" ? "button" : undefined}
+                tabIndex={e.kind !== "task" ? 0 : undefined}
+                onKeyDown={
+                  e.kind !== "task"
+                    ? (evt) => {
+                        if (evt.key === "Enter" || evt.key === " ") {
+                          evt.preventDefault();
+                          onEventClick(e);
+                        }
+                      }
+                    : undefined
+                }
+                aria-label={
+                  isGoogle
+                    ? `Google Calendar event: ${e.title}, ${timeLabel}`
+                    : e.kind === "task"
+                    ? `Task due: ${e.title}`
+                    : `Event: ${e.title}, ${timeLabel}`
+                }
+                onClick={() => e.kind !== "task" && onEventClick(e)}
+              >
+                <div className="muted small" style={{ width: 70, flex: "none" }}>
+                  {timeLabel}
+                </div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: 600, fontSize: 14 }}>{e.title}</div>
+                  <div className="task-meta">
+                    <span className="tag">{KIND_LABEL[e.kind]}</span>
+                    {isGoogle && (
+                      <span className="tag" style={{ border: "1px solid var(--accent)", color: "var(--accent)" }}>
+                        Google
+                      </span>
+                    )}
+                    {e.location && <span className="tag">{e.location}</span>}
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>

@@ -58,8 +58,8 @@ export function dateKey(iso: string): string {
 }
 
 /** Groups events by their calendar day (YYYY-MM-DD), sorted by start time within each day. */
-export function groupEventsByDay(all: CalendarEvent[]): Map<string, CalendarEvent[]> {
-  const map = new Map<string, CalendarEvent[]>();
+export function groupEventsByDay<T extends { start_at: string }>(all: T[]): Map<string, T[]> {
+  const map = new Map<string, T[]>();
   for (const e of all) {
     const key = dateKey(e.start_at);
     const list = map.get(key) ?? [];

@@ -7,6 +7,7 @@ import { getStoredTheme, applyTheme, type Theme } from "@/lib/services/themeServ
 import { resetAllLocalData } from "@/lib/data";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { preflightMigration, migrateLocalDataToSupabase, type MigrationPreflight, type MigrationResult } from "@/lib/services/migrationService";
+import { GoogleCalendarCard } from "@/components/settings/GoogleCalendarCard";
 
 export default function SettingsPage() {
   const { user, logout } = useAuth();
@@ -101,6 +102,8 @@ export default function SettingsPage() {
             </>
           )}
         </div>
+
+        {cloudMode && <GoogleCalendarCard />}
 
         {cloudMode && <ImportLocalDataCard />}
 
