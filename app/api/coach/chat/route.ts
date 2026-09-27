@@ -4,7 +4,7 @@ import { buildUserOperatingContext } from "@/lib/ai/coach/contextEngine";
 import { buildCoachSystemPrompt } from "@/lib/ai/coach/prompts";
 import { COACH_TOOLS, executeCoachTool } from "@/lib/ai/coach/tools";
 import { extractDurableMemories, persistMemories, touchMemories } from "@/lib/ai/coach/memoryEngine";
-import { streamTurn } from "@/lib/ai/providers/anthropic/client";
+import { streamTurn, isAiMocked } from "@/lib/ai";
 import type { CoachMode } from "@/types";
 
 /**
@@ -209,14 +209,12 @@ export async function POST(request: NextRequest) {
         controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
       }
 
-      const apiKey = process.env.ANTHROPIC_API_KEY;
-
-      if (!apiKey) {
+      if (isAiMocked()) {
         // Local / Demo mode fallback with incremental text emission
         const fallbackText =
           `[Demo Mode] I can see your schedule for today: you have ${context.schedule.total_free_minutes} minutes ` +
           `of open discretionary time and ${context.execution.today_tasks.length} tasks scheduled.\n\n` +
-          `To activate real conversational intelligence and tool execution, add ANTHROPIC_API_KEY to your environment (.env.local).`;
+          `To activate real conversational intelligence and tool execution, configure AI_PROVIDER (gemini or anthropic) and add your API key to .env.local.`;
 
         sendEvent("text", { text: fallbackText });
 
@@ -259,6 +257,7 @@ export async function POST(request: NextRequest) {
             toolResultsForNextTurn.push({
               type: "tool_result",
               tool_use_id: call.id,
+              name: call.name,
               content: JSON.stringify(exec.success ? exec.data : { error: exec.error }),
             });
           }
@@ -309,7 +308,14 @@ export async function POST(request: NextRequest) {
         controller.close();
       } catch (err: any) {
         const isUnavailable =
-          err?.status === 401 || err?.status === 429 || (err?.status && err.status >= 500) || err?.code === "ENOTFOUND";
+          err?.status === 400 ||
+          err?.status === 401 ||
+          err?.status === 403 ||
+          err?.status === 404 ||
+          err?.status === 429 ||
+          (err?.status && err.status >= 500) ||
+          err?.code === "ENOTFOUND" ||
+          Boolean(err?.message?.includes("API_KEY"));
         const message = isUnavailable
           ? "Coach AI is temporarily unavailable. Your tasks and schedule are still available."
           : (err?.message || "Coach AI is temporarily unavailable. Your tasks and schedule are still available.");
