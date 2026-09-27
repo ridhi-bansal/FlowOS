@@ -34,18 +34,19 @@ export interface ModelTurnResult {
 
 /**
  * Resolves the Gemini model name to use.
- * Defaults to 'gemini-3.8-flash'. Ignores non-Gemini AI_MODEL values like 'claude-*'.
+ * Defaults to 'gemini-2.5-flash'. Ignores non-Gemini AI_MODEL values like 'claude-*'.
  */
 export function getGeminiModel(): string {
   if (process.env.GEMINI_MODEL) return process.env.GEMINI_MODEL;
   if (process.env.AI_MODEL && !process.env.AI_MODEL.startsWith("claude-")) {
     return process.env.AI_MODEL;
   }
-  return "gemini-3.8-flash";
+  return "gemini-2.5-flash";
 }
 
 /**
  * Recursively normalizes JSON schema types to uppercase for Gemini's OpenAPI validator.
+ * Throws safely if an ARRAY schema is missing the mandatory 'items' definition.
  */
 export function formatSchemaForGemini(schema: any): any {
   if (!schema || typeof schema !== "object") return schema;
@@ -67,6 +68,13 @@ export function formatSchemaForGemini(schema: any): any {
       copy[key] = value;
     }
   }
+
+  if (copy.type === "ARRAY" && !copy.items) {
+    throw new Error(
+      "Invalid schema: ARRAY type must have an 'items' definition in Gemini OpenAPI specifications."
+    );
+  }
+
   return copy;
 }
 
@@ -94,20 +102,27 @@ export function convertToolsToGemini(
 
 /**
  * Converts conversational messages into Gemini's contents array format.
+ * Guarantees that:
+ * - The first turn has role: "user"
+ * - Roles strictly alternate between "user" and "model"
+ * - The final turn has role: "user" when requesting model response
+ * - Semantic conversation content and tool calls/responses are preserved
  */
 export function convertMessagesToGemini(
   messages: Array<{ role: "user" | "assistant"; content: any }>
 ): any[] {
-  const contents: any[] = [];
+  const parsedTurns: Array<{ role: "user" | "model"; parts: any[] }> = [];
 
   for (const msg of messages) {
-    const geminiRole = msg.role === "assistant" ? "model" : "user";
+    const geminiRole: "user" | "model" = msg.role === "assistant" ? "model" : "user";
 
     if (typeof msg.content === "string") {
-      contents.push({
-        role: geminiRole,
-        parts: [{ text: msg.content }],
-      });
+      if (msg.content.trim().length > 0) {
+        parsedTurns.push({
+          role: geminiRole,
+          parts: [{ text: msg.content }],
+        });
+      }
       continue;
     }
 
@@ -115,7 +130,7 @@ export function convertMessagesToGemini(
       const parts: any[] = [];
       for (const item of msg.content) {
         if (typeof item === "string") {
-          parts.push({ text: item });
+          if (item.trim().length > 0) parts.push({ text: item });
         } else if (item.type === "text" && item.text) {
           parts.push({ text: item.text });
         } else if (item.type === "tool_use") {
@@ -127,7 +142,7 @@ export function convertMessagesToGemini(
             },
           });
         } else if (item.type === "tool_result") {
-          let parsedResponse = {};
+          let parsedResponse: any = {};
           try {
             parsedResponse =
               typeof item.content === "string" ? JSON.parse(item.content) : item.content;
@@ -149,7 +164,7 @@ export function convertMessagesToGemini(
       }
 
       if (parts.length > 0) {
-        contents.push({
+        parsedTurns.push({
           role: geminiRole,
           parts,
         });
@@ -157,7 +172,32 @@ export function convertMessagesToGemini(
     }
   }
 
-  return contents;
+  // Merge consecutive turns with the same role to maintain strict alternation
+  const alternating: Array<{ role: "user" | "model"; parts: any[] }> = [];
+  for (const turn of parsedTurns) {
+    if (alternating.length > 0 && alternating[alternating.length - 1].role === turn.role) {
+      alternating[alternating.length - 1].parts.push(...turn.parts);
+    } else {
+      alternating.push({ role: turn.role, parts: [...turn.parts] });
+    }
+  }
+
+  // If conversation is completely empty, provide an initial user turn
+  if (alternating.length === 0) {
+    alternating.push({ role: "user", parts: [{ text: "Hello" }] });
+  }
+
+  // Ensure first content has role "user" without destroying model turns
+  if (alternating[0].role !== "user") {
+    alternating.unshift({ role: "user", parts: [{ text: "Hello" }] });
+  }
+
+  // Ensure final content has role "user" when requesting model response
+  if (alternating[alternating.length - 1].role === "model") {
+    alternating.push({ role: "user", parts: [{ text: "Please continue." }] });
+  }
+
+  return alternating;
 }
 
 /**
@@ -177,7 +217,7 @@ export async function complete({
   }
 
   const model = getGeminiModel();
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
 
   const bodyPayload: Record<string, any> = {
     contents: [
@@ -205,6 +245,7 @@ export async function complete({
     method: "POST",
     headers: {
       "Content-Type": "application/json",
+      "x-goog-api-key": apiKey,
     },
     body: JSON.stringify(bodyPayload),
   });
@@ -253,7 +294,7 @@ export async function completeTurn({
   }
 
   const model = getGeminiModel();
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
 
   const bodyPayload: Record<string, any> = {
     contents: convertMessagesToGemini(messages),
@@ -277,6 +318,7 @@ export async function completeTurn({
     method: "POST",
     headers: {
       "Content-Type": "application/json",
+      "x-goog-api-key": apiKey,
     },
     body: JSON.stringify(bodyPayload),
   });
@@ -343,7 +385,7 @@ export async function streamTurn({
   }
 
   const model = getGeminiModel();
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?alt=sse&key=${apiKey}`;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?alt=sse`;
 
   const bodyPayload: Record<string, any> = {
     contents: convertMessagesToGemini(messages),
@@ -367,6 +409,7 @@ export async function streamTurn({
     method: "POST",
     headers: {
       "Content-Type": "application/json",
+      "x-goog-api-key": apiKey,
     },
     body: JSON.stringify(bodyPayload),
   });

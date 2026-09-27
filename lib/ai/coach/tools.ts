@@ -284,7 +284,22 @@ export const COACH_TOOLS: AnthropicTool[] = [
           description: "The DayPlan object to apply for the remainder of today",
           properties: {
             date: { type: "string" },
-            blocks: { type: "array" },
+            blocks: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: {
+                  id: { type: "string" },
+                  task_id: { type: "string" },
+                  task_name: { type: "string" },
+                  start_at: { type: "string" },
+                  end_at: { type: "string" },
+                  duration_minutes: { type: "integer" },
+                  reason: { type: "string" },
+                },
+                required: ["task_id", "task_name", "start_at", "end_at"],
+              },
+            },
           },
           required: ["date", "blocks"],
         },

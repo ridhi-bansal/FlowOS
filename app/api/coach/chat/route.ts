@@ -307,6 +307,7 @@ export async function POST(request: NextRequest) {
         sendEvent("done", { conversationId: activeConvId });
         controller.close();
       } catch (err: any) {
+        console.error("[Coach AI Error]", err?.status || err?.code, err?.message);
         const isUnavailable =
           err?.status === 400 ||
           err?.status === 401 ||
