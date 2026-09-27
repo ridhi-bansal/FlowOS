@@ -11,7 +11,7 @@ export type { Repository } from "./repository";
 import type {
   Profile, Task, Project, Goal, Area, Tag, Milestone, CalendarEvent,
   FocusSession, TimeEntry, Habit, HabitLog, JournalEntry, Review,
-  CoachConversation, CoachMessage, Integration, AppNotification,
+  CoachConversation, CoachMessage, CoachMemory, TaskEvent, CoachActionReceipt, Integration, AppNotification,
 } from "@/types";
 
 /**
@@ -61,6 +61,9 @@ export const journalEntries = repo<JournalEntry>("journal_entries");
 export const reviews = repo<Review>("reviews");
 export const coachConversations = repo<CoachConversation>("coach_conversations");
 export const coachMessages = repo<CoachMessage>("coach_messages");
+export const coachMemories = repo<CoachMemory>("coach_memories");
+export const taskEvents = repo<TaskEvent>("task_events");
+export const coachActionReceipts = repo<CoachActionReceipt>("coach_action_receipts");
 export const integrations = repo<Integration>("integrations");
 export const notifications = repo<AppNotification>("notifications");
 
@@ -127,6 +130,9 @@ export async function resetAllLocalData(): Promise<void> {
     focusSessions: createLocalRepo<FocusSession>("focus_sessions"),
     timeEntries: createLocalRepo<TimeEntry>("time_entries"),
     journalEntries: createLocalRepo<JournalEntry>("journal_entries"),
+    coachMemories: createLocalRepo<CoachMemory>("coach_memories"),
+    taskEvents: createLocalRepo<TaskEvent>("task_events"),
+    coachActionReceipts: createLocalRepo<CoachActionReceipt>("coach_action_receipts"),
     integrations: createLocalRepo<Integration>("integrations"),
   };
   await Promise.all(

@@ -1,6 +1,6 @@
 "use client";
 
-import { tasks as taskRepo, newId, nowIso } from "@/lib/data";
+import { tasks as taskRepo, taskEvents, newId, nowIso } from "@/lib/data";
 import type { Task, Priority, TaskStatus } from "@/types";
 import { todayKey, dateKey } from "@/lib/utils/date";
 
@@ -72,11 +72,33 @@ export function createTask(input: NewTaskInput): Promise<Task> {
 
 export async function updateTask(id: string, patch: Partial<Task>): Promise<Task> {
   const existing = await taskRepo.get(id);
-  if (existing && patch.due_date && existing.due_date && patch.due_date > existing.due_date) {
-    // The due date moved later — count that as a postponement (see
-    // getPostponeCount below). Purely a local heuristic for the "What
-    // Should I Do Now?" recommender; not persisted in the schema yet.
-    incrementPostponeCount(id);
+  if (existing && patch.due_date !== undefined && patch.due_date !== existing.due_date) {
+    taskEvents
+      .create({
+        id: newId(),
+        user_id: existing.user_id,
+        task_id: id,
+        event_type: "due_date_changed",
+        old_value: existing.due_date,
+        new_value: patch.due_date ?? null,
+        created_at: nowIso(),
+      })
+      .catch(() => {});
+
+    if (patch.due_date && existing.due_date && patch.due_date > existing.due_date) {
+      taskEvents
+        .create({
+          id: newId(),
+          user_id: existing.user_id,
+          task_id: id,
+          event_type: "postponed",
+          old_value: existing.due_date,
+          new_value: patch.due_date,
+          created_at: nowIso(),
+        })
+        .catch(() => {});
+      incrementPostponeCount(id);
+    }
   }
   return taskRepo.update(id, patch);
 }

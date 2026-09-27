@@ -372,6 +372,54 @@ create table if not exists coach_messages (
 );
 
 -- ---------------------------------------------------------
+-- COACH MEMORIES (Long-term durable memory across conversations)
+-- ---------------------------------------------------------
+create table if not exists coach_memories (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  category text not null check (category in ('preference', 'recurring_commitment', 'responsibility', 'constraint', 'working_style', 'planning_pattern', 'durable_context')),
+  content text not null,
+  source text not null default 'explicit_statement' check (source in ('explicit_statement', 'pattern_observation', 'reflection')),
+  source_message_id uuid references coach_messages(id) on delete set null,
+  confidence text not null default 'high' check (confidence in ('high', 'medium')),
+  status text not null default 'active' check (status in ('active', 'archived')),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  last_used_at timestamptz default now()
+);
+
+drop trigger if exists coach_memories_set_updated_at on coach_memories;
+create trigger coach_memories_set_updated_at before update on coach_memories
+  for each row execute procedure set_updated_at();
+
+-- ---------------------------------------------------------
+-- TASK EVENTS (Task change, rescheduling & postponement history)
+-- ---------------------------------------------------------
+create table if not exists task_events (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  task_id uuid not null references tasks(id) on delete cascade,
+  event_type text not null check (event_type in ('due_date_changed', 'postponed', 'priority_changed', 'created', 'completed')),
+  old_value text,
+  new_value text,
+  created_at timestamptz not null default now()
+);
+
+-- ---------------------------------------------------------
+-- COACH ACTION RECEIPTS (Durable idempotency protection)
+-- ---------------------------------------------------------
+create table if not exists coach_action_receipts (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  idempotency_key text not null,
+  action_name text not null,
+  payload_hash text not null,
+  receipt jsonb not null,
+  created_at timestamptz not null default now(),
+  unique (user_id, idempotency_key)
+);
+
+-- ---------------------------------------------------------
 -- INTEGRATIONS  (explicit states only — never fake "connected")
 -- ---------------------------------------------------------
 create table if not exists integrations (
@@ -418,7 +466,8 @@ begin
       'profiles','areas','tags','goals','projects','milestones','tasks',
       'task_dependencies','task_tags','attachments','events','focus_sessions',
       'time_entries','habits','habit_logs','journal_entries','reviews',
-      'coach_conversations','coach_messages','integrations','notifications'
+      'coach_conversations','coach_messages','coach_memories','task_events',
+      'coach_action_receipts','integrations','notifications'
     ])
   loop
     execute format('alter table %I enable row level security;', t);
@@ -438,7 +487,8 @@ begin
     select unnest(array[
       'areas','tags','goals','projects','milestones','tasks','attachments','events',
       'focus_sessions','time_entries','habits','habit_logs','journal_entries','reviews',
-      'coach_conversations','coach_messages','integrations','notifications'
+      'coach_conversations','coach_messages','coach_memories','task_events',
+      'coach_action_receipts','integrations','notifications'
     ])
   loop
     execute format('drop policy if exists %I_owner on %I;', t, t);
@@ -488,6 +538,9 @@ create index if not exists idx_habit_logs_user on habit_logs(user_id);
 create index if not exists idx_time_entries_user on time_entries(user_id, started_at);
 create index if not exists idx_journal_user_date on journal_entries(user_id, entry_date);
 create index if not exists idx_coach_messages_conv on coach_messages(conversation_id, created_at);
+create index if not exists idx_coach_memories_user on coach_memories(user_id, status);
+create index if not exists idx_task_events_user_task on task_events(user_id, task_id, created_at);
+create index if not exists idx_coach_action_receipts_user_key on coach_action_receipts(user_id, idempotency_key);
 
 -- =========================================================
 -- STORAGE

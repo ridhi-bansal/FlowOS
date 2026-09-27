@@ -178,6 +178,52 @@ export interface CoachMessage {
   created_at: string;
 }
 
+export type MemoryCategory =
+  | "preference"
+  | "recurring_commitment"
+  | "responsibility"
+  | "constraint"
+  | "working_style"
+  | "planning_pattern"
+  | "durable_context";
+
+export type MemoryConfidence = "high" | "medium";
+export type MemoryStatus = "active" | "archived";
+
+export interface CoachMemory {
+  id: string;
+  user_id: string;
+  category: MemoryCategory;
+  content: string;
+  source: "explicit_statement" | "pattern_observation" | "reflection";
+  source_message_id?: string | null;
+  confidence: MemoryConfidence;
+  status: MemoryStatus;
+  created_at: string;
+  updated_at: string;
+  last_used_at?: string | null;
+}
+
+export interface TaskEvent {
+  id: string;
+  user_id: string;
+  task_id: string;
+  event_type: "due_date_changed" | "postponed" | "priority_changed" | "created" | "completed";
+  old_value: string | null;
+  new_value: string | null;
+  created_at: string;
+}
+
+export interface CoachActionReceipt {
+  id: string;
+  user_id: string;
+  idempotency_key: string;
+  action_name: string;
+  payload_hash: string;
+  receipt: Record<string, unknown>;
+  created_at: string;
+}
+
 /** Output shape for the "What Should I Do Now?" AI feature. */
 export interface WhatNowRecommendation {
   taskId: string | null;

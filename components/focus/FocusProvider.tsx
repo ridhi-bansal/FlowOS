@@ -27,6 +27,14 @@ export function FocusProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     refresh().finally(() => setLoading(false));
+
+    function handleDataUpdated() {
+      refresh();
+    }
+    window.addEventListener("flowos:data-updated", handleDataUpdated);
+    return () => {
+      window.removeEventListener("flowos:data-updated", handleDataUpdated);
+    };
   }, [refresh]);
 
   const start = useCallback(async (input: StartSessionInput) => {

@@ -36,6 +36,14 @@ export function ProjectsProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     refresh().finally(() => setLoading(false));
+
+    function handleDataUpdated() {
+      refresh();
+    }
+    window.addEventListener("flowos:data-updated", handleDataUpdated);
+    return () => {
+      window.removeEventListener("flowos:data-updated", handleDataUpdated);
+    };
   }, [refresh]);
 
   const addProject = useCallback(

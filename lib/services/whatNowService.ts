@@ -27,7 +27,8 @@ function minutesUntil(iso: string, from: Date): number {
 export async function whatShouldIDoNow(
   openTasks: Task[],
   energy: "low" | "medium" | "high" | undefined,
-  now: Date = new Date()
+  now: Date = new Date(),
+  externalEvents?: Array<{ start_at: string; title: string }>
 ): Promise<WhatNowRecommendation> {
   const candidates = openTasks.filter((t) => !t.done);
 
@@ -42,10 +43,45 @@ export async function whatShouldIDoNow(
   }
 
   const allEvents = await eventsRepo.list();
-  const nextEvent = allEvents
+  const mergedEvents = externalEvents
+    ? [...allEvents, ...externalEvents]
+    : allEvents;
+
+  // Check if currently inside a busy event
+  const currentBusy = mergedEvents.find((e: any) => {
+    if (e.all_day) return false;
+    const s = +new Date(e.start_at);
+    const end = e.end_at ? +new Date(e.end_at) : s + 3600000;
+    return s <= +now && end > +now && e.kind !== "time_block";
+  });
+
+  const nextEvent = mergedEvents
     .filter((e) => +new Date(e.start_at) > +now)
     .sort((a, b) => +new Date(a.start_at) - +new Date(b.start_at))[0];
-  const availableMinutes = nextEvent ? Math.max(0, minutesUntil(nextEvent.start_at, now)) : Infinity;
+
+  const availableMinutes = currentBusy
+    ? 0
+    : nextEvent
+    ? Math.max(0, minutesUntil(nextEvent.start_at, now))
+    : Infinity;
+
+  if (currentBusy) {
+    return {
+      taskId: null,
+      taskName: "Currently in a commitment",
+      minutes: 0,
+      reason: `You have "${currentBusy.title}" scheduled right now. Focus on your current commitment.`,
+      confidence: "high",
+    };
+  }
+
+  // Detect active planned time block for today
+  const activeTimeBlock = mergedEvents.find((e: any) => {
+    if (e.kind !== "time_block" || !e.task_id) return false;
+    const s = +new Date(e.start_at);
+    const end = e.end_at ? +new Date(e.end_at) : s + 1800000;
+    return (s <= +now && end > +now) || (s > +now && s - +now <= 10 * 60000);
+  }) as any;
 
   const priorityScore: Record<string, number> = { high: 3, medium: 2, low: 1 };
 
@@ -53,6 +89,11 @@ export async function whatShouldIDoNow(
     .map((t) => {
       let score = priorityScore[t.priority] ?? 1;
       const reasons: string[] = [];
+
+      if (activeTimeBlock && activeTimeBlock.task_id === t.id) {
+        score += 10;
+        reasons.push("scheduled in your planned focus block");
+      }
 
       if (isOverdue(t)) {
         score += 4;
@@ -62,9 +103,9 @@ export async function whatShouldIDoNow(
         reasons.push("it's due today");
       } else if (t.due_date) {
         const days = Math.round((+new Date(t.due_date) - +now) / 86400000);
-        if (days <= 3) {
+        if (days <= 3 && days >= 0) {
           score += 1;
-          reasons.push(`it's due in ${days} day${days === 1 ? "" : "s"}`);
+          reasons.push(`it's due in ${days === 0 ? "today" : days + " days"}`);
         }
       }
 
@@ -82,14 +123,25 @@ export async function whatShouldIDoNow(
       }
 
       const duration = t.estimated_minutes ?? 30;
-      const fits = duration <= availableMinutes;
+      const fits = availableMinutes > 0 && duration <= availableMinutes;
 
       return { task: t, score, reasons, duration, fits };
     })
     .sort((a, b) => b.score - a.score);
 
   const fitting = scored.filter((s) => s.fits);
-  const pick = (fitting[0] ?? scored[0]);
+
+  if (fitting.length === 0 && Number.isFinite(availableMinutes)) {
+    return {
+      taskId: null,
+      taskName: "No tasks fit before your next commitment",
+      minutes: availableMinutes,
+      reason: `You have about ${availableMinutes} min before "${nextEvent?.title}", but all open tasks require more time. Consider a quick administrative check or breaking down a larger task.`,
+      confidence: "high",
+    };
+  }
+
+  const pick = fitting[0] ?? scored[0];
 
   const reasonParts = pick.reasons.length > 0 ? pick.reasons : ["it's next in line"];
   if (nextEvent && Number.isFinite(availableMinutes)) {

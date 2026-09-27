@@ -22,7 +22,7 @@ export const STORE_NAMES = [
   "profiles", "areas", "tags", "goals", "projects", "milestones", "tasks",
   "task_tags", "attachments", "events", "focus_sessions", "time_entries",
   "habits", "habit_logs", "journal_entries", "reviews", "coach_conversations",
-  "coach_messages", "integrations", "notifications",
+  "coach_messages", "coach_memories", "task_events", "coach_action_receipts", "integrations", "notifications",
 ] as const;
 
 export type StoreName = (typeof STORE_NAMES)[number];
