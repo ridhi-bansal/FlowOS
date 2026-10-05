@@ -201,6 +201,29 @@ export function convertMessagesToGemini(
 }
 
 /**
+ * Executes a Gemini HTTP request with at most 2 total attempts for transient capacity errors (503 / 429).
+ * Google Generative Language API occasionally returns 503 (UNAVAILABLE / model overloaded)
+ * or 429 (RESOURCE_EXHAUSTED) during momentary capacity spikes.
+ * Client errors (400, 401, 403, 404, schema, auth) are never retried.
+ * Retrying happens strictly before any response stream or body is consumed.
+ */
+export async function fetchWithTransientRetry(
+  url: string,
+  init: RequestInit,
+  fetchFn: typeof fetch = fetch,
+  delayMs: number = 1000
+): Promise<Response> {
+  const res = await fetchFn(url, init);
+  if (res.status === 503 || res.status === 429) {
+    if (delayMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+    return fetchFn(url, init);
+  }
+  return res;
+}
+
+/**
  * Executes a single-turn completion with Gemini.
  */
 export async function complete({
@@ -241,7 +264,7 @@ export async function complete({
     bodyPayload.generationConfig.responseMimeType = "application/json";
   }
 
-  const res = await fetch(url, {
+  const res = await fetchWithTransientRetry(url, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -314,7 +337,7 @@ export async function completeTurn({
     bodyPayload.tools = geminiTools;
   }
 
-  const res = await fetch(url, {
+  const res = await fetchWithTransientRetry(url, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -405,7 +428,7 @@ export async function streamTurn({
     bodyPayload.tools = geminiTools;
   }
 
-  const res = await fetch(url, {
+  const res = await fetchWithTransientRetry(url, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
