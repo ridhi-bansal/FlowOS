@@ -34,14 +34,14 @@ export interface ModelTurnResult {
 
 /**
  * Resolves the Gemini model name to use.
- * Defaults to 'gemini-2.5-flash'. Ignores non-Gemini AI_MODEL values like 'claude-*'.
+ * Defaults to 'gemini-3.8-flash'. Ignores non-Gemini AI_MODEL values like 'claude-*'.
  */
 export function getGeminiModel(): string {
   if (process.env.GEMINI_MODEL) return process.env.GEMINI_MODEL;
   if (process.env.AI_MODEL && !process.env.AI_MODEL.startsWith("claude-")) {
     return process.env.AI_MODEL;
   }
-  return "gemini-2.5-flash";
+  return "gemini-3.8-flash";
 }
 
 /**
