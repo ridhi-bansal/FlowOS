@@ -251,6 +251,9 @@ export async function complete({
     ],
     generationConfig: {
       maxOutputTokens: maxTokens,
+      thinkingConfig: {
+        thinkingLevel: "low",
+      },
     },
   };
 
@@ -323,6 +326,9 @@ export async function completeTurn({
     contents: convertMessagesToGemini(messages),
     generationConfig: {
       maxOutputTokens: maxTokens,
+      thinkingConfig: {
+        thinkingLevel: "low",
+      },
     },
   };
 
@@ -414,6 +420,9 @@ export async function streamTurn({
     contents: convertMessagesToGemini(messages),
     generationConfig: {
       maxOutputTokens: maxTokens,
+      thinkingConfig: {
+        thinkingLevel: "low",
+      },
     },
   };
 
