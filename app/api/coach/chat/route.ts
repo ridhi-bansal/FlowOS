@@ -274,6 +274,7 @@ export async function POST(request: NextRequest) {
                   id: tc.id,
                   name: tc.name,
                   input: tc.input,
+                  ...(tc.thoughtSignature ? { thoughtSignature: tc.thoughtSignature } : {}),
                 })),
               ],
             },

@@ -23,6 +23,7 @@ export interface ToolCall {
   id: string;
   name: string;
   input: Record<string, any>;
+  thoughtSignature?: string;
 }
 
 export interface ModelTurnResult {
@@ -140,6 +141,7 @@ export function convertMessagesToGemini(
               name: item.name,
               args: item.input || {},
             },
+            ...(item.thoughtSignature ? { thoughtSignature: item.thoughtSignature } : {}),
           });
         } else if (item.type === "tool_result") {
           let parsedResponse: any = {};
@@ -157,7 +159,10 @@ export function convertMessagesToGemini(
             },
           });
         } else if (item.functionCall) {
-          parts.push({ functionCall: item.functionCall });
+          parts.push({
+            functionCall: item.functionCall,
+            ...(item.thoughtSignature ? { thoughtSignature: item.thoughtSignature } : {}),
+          });
         } else if (item.functionResponse) {
           parts.push({ functionResponse: item.functionResponse });
         }
@@ -365,15 +370,21 @@ export async function completeTurn({
 
   let text = "";
   const toolCalls: ToolCall[] = [];
+  let currentThoughtSignature: string | undefined;
 
   for (const part of parts) {
+    if (part.thoughtSignature) {
+      currentThoughtSignature = part.thoughtSignature;
+    }
     if (part.text) {
       text += (text ? "\n" : "") + part.text;
     } else if (part.functionCall) {
+      const signature = part.thoughtSignature || currentThoughtSignature;
       toolCalls.push({
         id: part.functionCall.id || `call_${toolCalls.length + 1}_${part.functionCall.name}`,
         name: part.functionCall.name,
         input: part.functionCall.args || {},
+        ...(signature ? { thoughtSignature: signature } : {}),
       });
     }
   }
@@ -460,6 +471,7 @@ export async function streamTurn({
   let fullText = "";
   const toolCalls: ToolCall[] = [];
   let stopReason = "stop";
+  let currentThoughtSignature: string | undefined;
 
   while (true) {
     const { done, value } = await reader.read();
@@ -489,6 +501,9 @@ export async function streamTurn({
 
       const parts = candidate?.content?.parts || [];
       for (const part of parts) {
+        if (part.thoughtSignature) {
+          currentThoughtSignature = part.thoughtSignature;
+        }
         if (part.text) {
           fullText += part.text;
           if (onTextDelta) {
@@ -496,10 +511,12 @@ export async function streamTurn({
           }
         }
         if (part.functionCall) {
+          const signature = part.thoughtSignature || currentThoughtSignature;
           toolCalls.push({
             id: part.functionCall.id || `call_${toolCalls.length + 1}_${part.functionCall.name}`,
             name: part.functionCall.name,
             input: part.functionCall.args || {},
+            ...(signature ? { thoughtSignature: signature } : {}),
           });
         }
       }
