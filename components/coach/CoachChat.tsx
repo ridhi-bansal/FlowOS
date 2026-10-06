@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { CoachMode } from "@/types";
+import { useTasks } from "@/components/tasks/TasksProvider";
+import { isOverdue } from "@/lib/services/taskService";
 import type {
   CoachActionReceipt,
   CoachTrigger,
@@ -14,11 +16,19 @@ import type {
   DayPlan,
 } from "@/lib/ai/coach/types";
 
+export interface InstantRecommendationData {
+  taskId: string;
+  title: string;
+  badges: string[];
+  reason?: string;
+}
+
 interface Message {
   id?: string;
   role: "user" | "assistant";
   content: string;
   receipts?: CoachActionReceipt[];
+  instantRecommendation?: InstantRecommendationData;
 }
 
 const MODES: { id: CoachMode; label: string; icon: string }[] = [
@@ -31,9 +41,11 @@ const MODES: { id: CoachMode; label: string; icon: string }[] = [
 ];
 
 export function CoachChat() {
+  const { tasks } = useTasks();
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [isInstantRecommendationPending, setIsInstantRecommendationPending] = useState(false);
   const [conversationId, setConversationId] = useState<string | undefined>(undefined);
   const [mode, setMode] = useState<CoachMode>("coach");
   const [initialLoading, setInitialLoading] = useState(true);
@@ -45,6 +57,7 @@ export function CoachChat() {
   const [dailyState, setDailyState] = useState<DailyState | null>(null);
   const [dayPlan, setDayPlan] = useState<DayPlan | null>(null);
   const [showTodayTray, setShowTodayTray] = useState(false);
+  const [showSecondaryInsights, setShowSecondaryInsights] = useState(false);
   const [showSecondaryTriggers, setShowSecondaryTriggers] = useState(false);
   const [staleNotice, setStaleNotice] = useState<string | null>(null);
   const [activeFocusTask, setActiveFocusTask] = useState<ActiveExecutionTask | null>(null);
@@ -214,6 +227,47 @@ export function CoachChat() {
       }
     } catch {}
     setActiveReview(null);
+  }
+
+  function isRecommendationQuery(text: string): boolean {
+    const q = text.toLowerCase().trim();
+    return (
+      q.includes("what should i work on") ||
+      q.includes("what should i do right now") ||
+      q.includes("what should i do now") ||
+      q.includes("what to work on") ||
+      q.includes("what to do right now") ||
+      q.includes("what to do now") ||
+      q.includes("what's next") ||
+      q.includes("whats next") ||
+      q.includes("what next") ||
+      q.includes("next task")
+    );
+  }
+
+  function resolveInstantRecommendation(): InstantRecommendationData | null {
+    if (!executionState?.recommendedTask) return null;
+    const rec = executionState.recommendedTask;
+    const taskObj = tasks.find((t) => t.id === rec.taskId);
+
+    const badges: string[] = [];
+    if (taskObj && isOverdue(taskObj)) {
+      badges.push("Overdue");
+    }
+    if (taskObj?.priority) {
+      badges.push(`${taskObj.priority.charAt(0).toUpperCase() + taskObj.priority.slice(1)} priority`);
+    } else {
+      badges.push("High priority");
+    }
+    const minutes = taskObj?.estimated_minutes ?? rec.estimatedMinutes ?? 45;
+    badges.push(`${minutes} min`);
+
+    return {
+      taskId: rec.taskId,
+      title: rec.title,
+      badges,
+      reason: rec.reason,
+    };
   }
 
   async function handleStartTask(taskId: string) {
@@ -401,8 +455,28 @@ export function CoachChat() {
 
     setInput("");
     const userMsg: Message = { role: "user", content: text };
-    // Add user message and empty assistant placeholder for progressive streaming
-    setMessages((prev) => [...prev, userMsg, { role: "assistant", content: "", receipts: [] }]);
+    
+    // Check if this query is asking for a recommendation (e.g. "What should I work on right now?")
+    const isRecQuery = isRecommendationQuery(text);
+    const instantRec = isRecQuery ? resolveInstantRecommendation() : null;
+
+    if (instantRec) {
+      setIsInstantRecommendationPending(true);
+    } else {
+      setIsInstantRecommendationPending(false);
+    }
+
+    // Add user message and assistant placeholder (with instant recommendation if available)
+    setMessages((prev) => [
+      ...prev,
+      userMsg,
+      {
+        role: "assistant",
+        content: "",
+        receipts: [],
+        instantRecommendation: instantRec ?? undefined,
+      },
+    ]);
     setLoading(true);
 
     try {
@@ -522,11 +596,12 @@ export function CoachChat() {
       });
     } finally {
       setLoading(false);
+      setIsInstantRecommendationPending(false);
     }
   }
 
   return (
-    <div className="card" style={{ display: "flex", flexDirection: "column", height: 560 }}>
+    <div className="card" style={{ display: "flex", flexDirection: "column", minHeight: 620 }}>
       {/* Header with Mode Selection */}
       <div className="card-head" style={{ marginBottom: 12, paddingBottom: 10, borderBottom: "1px solid var(--border)" }}>
         <div className="row" style={{ gap: 8 }}>
@@ -639,69 +714,98 @@ export function CoachChat() {
             </button>
           </div>
         </div>
-      ) : executionState?.recommendedTask && executionState.canStartRecommendedTask ? (
-        <div
-          style={{
-            marginBottom: 12,
-            padding: "12px 14px",
-            background: "color-mix(in srgb, #10b981 10%, var(--surface))",
-            border: "1.5px solid color-mix(in srgb, #10b981 35%, var(--border))",
-            borderRadius: 12,
-            display: "flex",
-            flexDirection: "column",
-            gap: 8,
-          }}
-        >
-          <div className="row between small" style={{ alignItems: "center" }}>
-            <div className="row" style={{ gap: 6, alignItems: "center" }}>
-              <span style={{ fontSize: 16 }}>🎯</span>
-              <span style={{ fontWeight: 700, color: "#059669", fontSize: 12, textTransform: "uppercase", letterSpacing: "0.04em" }}>
-                What To Do Right Now
-              </span>
-              <span className="small muted" style={{ fontSize: 11 }}>
-                • {executionState.currentWindow?.availableMinutes}m available
-                {executionState.nextCommitment ? ` • Next: "${executionState.nextCommitment.title}"` : ""}
-              </span>
-            </div>
-          </div>
+      ) : executionState?.recommendedTask && executionState.canStartRecommendedTask ? (() => {
+        const taskObj = tasks.find((t) => t.id === executionState.recommendedTask!.taskId);
+        const badges: string[] = [];
+        if (taskObj && isOverdue(taskObj)) {
+          badges.push("Overdue");
+        }
+        if (taskObj?.priority) {
+          badges.push(`${taskObj.priority.charAt(0).toUpperCase() + taskObj.priority.slice(1)} priority`);
+        } else {
+          badges.push("High priority");
+        }
+        const minutes = taskObj?.estimated_minutes ?? executionState.recommendedTask.estimatedMinutes ?? 45;
+        badges.push(`${minutes} min`);
 
-          <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-            <div style={{ fontSize: 16, fontWeight: 700 }}>
-              {executionState.recommendedTask.title}
+        return (
+          <div
+            style={{
+              marginBottom: 12,
+              padding: "12px 14px",
+              background: "color-mix(in srgb, #10b981 10%, var(--surface))",
+              border: "1.5px solid color-mix(in srgb, #10b981 35%, var(--border))",
+              borderRadius: 12,
+              display: "flex",
+              flexDirection: "column",
+              gap: 8,
+            }}
+          >
+            <div className="row between small" style={{ alignItems: "center" }}>
+              <div className="row" style={{ gap: 6, alignItems: "center" }}>
+                <span style={{ fontSize: 16 }}>🎯</span>
+                <span style={{ fontWeight: 700, color: "#059669", fontSize: 12, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                  Your Next Move
+                </span>
+                {executionState.currentWindow?.availableMinutes ? (
+                  <span className="small muted" style={{ fontSize: 11 }}>
+                    • {executionState.currentWindow.availableMinutes}m available
+                    {executionState.nextCommitment ? ` • Next: "${executionState.nextCommitment.title}"` : ""}
+                  </span>
+                ) : null}
+              </div>
             </div>
-            <p className="small muted" style={{ margin: 0, lineHeight: 1.4 }}>
-              {executionState.recommendedTask.reason}
-            </p>
-          </div>
 
-          <div className="row" style={{ gap: 8, marginTop: 4, flexWrap: "wrap", alignItems: "center" }}>
-            <button
-              className="primary small"
-              disabled={startingTaskId === executionState.recommendedTask.taskId}
-              onClick={() => handleStartTask(executionState.recommendedTask!.taskId)}
-              style={{ fontSize: 12, padding: "4px 12px", fontWeight: 600, background: "#059669", borderColor: "#059669" }}
-            >
-              {startingTaskId === executionState.recommendedTask.taskId ? "Starting…" : "▶ Start Task"}
-            </button>
-            <button
-              className="ghost small"
-              onClick={() => handleCantDoThisNow(executionState.recommendedTask!.taskId)}
-              style={{ fontSize: 11, padding: "4px 8px" }}
-            >
-              I can't do this now
-            </button>
-            {executionState.recoveryOptions.find((o) => o.type === "choose_smaller_task") && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+              <div style={{ fontSize: 16, fontWeight: 700 }}>
+                {executionState.recommendedTask.title}
+              </div>
+              <div className="row" style={{ gap: 6, flexWrap: "wrap", margin: "2px 0" }}>
+                {badges.map((b, bIdx) => (
+                  <span
+                    key={bIdx}
+                    className="tag"
+                    style={{
+                      fontSize: 11,
+                      padding: "2px 8px",
+                      fontWeight: b.includes("Overdue") ? 600 : 500,
+                      color: b.includes("Overdue") ? "var(--red)" : b.includes("High") ? "var(--red)" : "inherit",
+                      borderColor: b.includes("Overdue") ? "color-mix(in srgb, var(--red) 40%, var(--border))" : undefined,
+                    }}
+                  >
+                    {b}
+                  </span>
+                ))}
+              </div>
+            </div>
+
+            <div className="row" style={{ gap: 8, marginTop: 4, flexWrap: "wrap", alignItems: "center" }}>
+              <button
+                className="primary small"
+                disabled={startingTaskId === executionState.recommendedTask.taskId}
+                onClick={() => handleStartTask(executionState.recommendedTask!.taskId)}
+                style={{ fontSize: 12, padding: "4px 12px", fontWeight: 600, background: "#059669", borderColor: "#059669" }}
+              >
+                {startingTaskId === executionState.recommendedTask.taskId ? "Starting…" : "▶ Start task"}
+              </button>
               <button
                 className="ghost small"
-                onClick={() => setInput(executionState.recoveryOptions.find((o) => o.type === "choose_smaller_task")!.prompt)}
-                style={{ fontSize: 11, padding: "4px 8px", textDecoration: "underline" }}
+                onClick={() => setInput(`Why are you recommending "${executionState.recommendedTask!.title}"?`)}
+                style={{ fontSize: 11, padding: "4px 8px" }}
               >
-                {executionState.recoveryOptions.find((o) => o.type === "choose_smaller_task")!.label}
+                Why this?
               </button>
-            )}
+              <button
+                className="ghost small"
+                onClick={() => handleCantDoThisNow(executionState.recommendedTask!.taskId)}
+                style={{ fontSize: 11, padding: "4px 8px" }}
+              >
+                I can't do this now
+              </button>
+            </div>
           </div>
-        </div>
-      ) : executionState && !executionState.canStartRecommendedTask && executionState.blockers.length > 0 ? (
+        );
+      })() : executionState && !executionState.canStartRecommendedTask && executionState.blockers.length > 0 ? (
         <div
           style={{
             marginBottom: 12,
@@ -738,345 +842,7 @@ export function CoachChat() {
         </div>
       ) : null}
 
-      {/* 2. TODAY SURFACE (Day Tray) */}
-      {dayPlan && dayPlan.blocks.length > 0 && (
-        <div
-          style={{
-            marginBottom: 10,
-            padding: "8px 12px",
-            background: "color-mix(in srgb, var(--surface2) 40%, var(--surface))",
-            border: "1px solid var(--border)",
-            borderRadius: 10,
-          }}
-        >
-          <div
-            className="row between small"
-            style={{ alignItems: "center", cursor: "pointer" }}
-            onClick={() => setShowTodayTray((prev) => !prev)}
-          >
-            <div className="row" style={{ gap: 6, alignItems: "center" }}>
-              <span style={{ fontSize: 13 }}>📅</span>
-              <span style={{ fontWeight: 600, fontSize: 12 }}>
-                Today's Plan ({dayPlan.blocks.length} focus block{dayPlan.blocks.length > 1 ? "s" : ""})
-              </span>
-              {dailyState?.capacity && (
-                <span className="small muted" style={{ fontSize: 11 }}>
-                  • {dailyState.capacity.planned_minutes_today}m planned / {dailyState.capacity.free_minutes_today}m free
-                  {dailyState.capacity.status === "overloaded" ? " (overloaded)" : ""}
-                </span>
-              )}
-            </div>
-            <span style={{ fontSize: 11, color: "var(--muted)" }}>
-              {showTodayTray ? "Hide ▲" : "Show ▼"}
-            </span>
-          </div>
-          {showTodayTray && (
-            <div
-              style={{
-                marginTop: 8,
-                display: "flex",
-                flexDirection: "column",
-                gap: 4,
-                borderTop: "1px solid var(--border)",
-                paddingTop: 6,
-              }}
-            >
-              {dayPlan.blocks.map((b, i) => (
-                <div key={i} className="row between small" style={{ fontSize: 12, padding: "2px 0" }}>
-                  <span>• {b.task_name}</span>
-                  <span className="muted" style={{ fontSize: 11 }}>
-                    {b.start_at.slice(11, 16)} – {b.end_at.slice(11, 16)} ({b.duration_minutes}m)
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
 
-      {/* 3. PROACTIVE INTELLIGENCE ALERT (Prioritized) */}
-      {activeTriggers.length > 0 && (
-        <div
-          style={{
-            marginBottom: 10,
-            padding: "8px 12px",
-            background: "color-mix(in srgb, var(--accent) 8%, var(--surface))",
-            border: "1px solid color-mix(in srgb, var(--accent) 28%, var(--border))",
-            borderRadius: 10,
-            display: "flex",
-            flexDirection: "column",
-            gap: 4,
-          }}
-        >
-          <div className="row between small" style={{ alignItems: "center" }}>
-            <div className="row" style={{ gap: 6, alignItems: "center" }}>
-              <span style={{ fontSize: 14 }}>💡</span>
-              <span style={{ fontWeight: 600, color: "var(--accent)", fontSize: 12 }}>
-                Coach Notice
-              </span>
-              <span className="small muted" style={{ fontSize: 11 }}>
-                • {activeTriggers[0].title}
-              </span>
-            </div>
-            <button
-              className="ghost small"
-              onClick={() => handleDismissTrigger(activeTriggers[0].id)}
-              style={{
-                padding: "0 4px",
-                fontSize: 11,
-                opacity: 0.7,
-                cursor: "pointer",
-                border: "none",
-                background: "transparent",
-              }}
-              title="Dismiss notice"
-            >
-              ✕
-            </button>
-          </div>
-          <p className="small" style={{ margin: "2px 0", lineHeight: 1.4, color: "var(--text)" }}>
-            {activeTriggers[0].message}
-          </p>
-          <div className="row between small" style={{ marginTop: 4, alignItems: "center" }}>
-            <div className="row" style={{ gap: 8 }}>
-              <button
-                className="primary small"
-                onClick={() => handleTriggerAction(activeTriggers[0])}
-                style={{ fontSize: 11, padding: "3px 8px" }}
-              >
-                {activeTriggers[0].suggested_action.label}
-              </button>
-              <button
-                className="ghost small"
-                onClick={() => handleDismissTrigger(activeTriggers[0].id)}
-                style={{ fontSize: 11, padding: "3px 8px" }}
-              >
-                Dismiss
-              </button>
-            </div>
-            {activeTriggers.length > 1 && (
-              <button
-                className="ghost small"
-                onClick={() => setShowSecondaryTriggers((prev) => !prev)}
-                style={{ fontSize: 11, padding: "2px 6px" }}
-              >
-                {showSecondaryTriggers ? "Hide extra alerts ▲" : `+${activeTriggers.length - 1} more alert${activeTriggers.length > 2 ? "s" : ""} ▼`}
-              </button>
-            )}
-          </div>
-          {showSecondaryTriggers && activeTriggers.slice(1).map((secTrigger) => (
-            <div
-              key={secTrigger.id}
-              style={{
-                marginTop: 6,
-                padding: "6px 8px",
-                background: "var(--surface)",
-                borderRadius: 6,
-                border: "1px solid var(--border)",
-                display: "flex",
-                flexDirection: "column",
-                gap: 4,
-              }}
-            >
-              <div className="row between small" style={{ fontWeight: 600 }}>
-                <span>• {secTrigger.title}</span>
-                <button
-                  className="ghost small"
-                  onClick={() => handleDismissTrigger(secTrigger.id)}
-                  style={{ border: "none", background: "transparent", cursor: "pointer", padding: "0 4px" }}
-                >
-                  ✕
-                </button>
-              </div>
-              <p className="small muted" style={{ margin: 0, lineHeight: 1.3 }}>
-                {secTrigger.message}
-              </p>
-              <button
-                className="primary small"
-                onClick={() => handleTriggerAction(secTrigger)}
-                style={{ fontSize: 10, padding: "2px 6px", alignSelf: "flex-start", marginTop: 2 }}
-              >
-                {secTrigger.suggested_action.label}
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Daily Reflection & Adaptation Card */}
-      {activeReflection && !filterDismissedReflection(activeReflection) && (
-        <div
-          style={{
-            marginBottom: 10,
-            padding: "10px 12px",
-            background: "color-mix(in srgb, #6366f1 8%, var(--surface))",
-            border: "1px solid color-mix(in srgb, #6366f1 28%, var(--border))",
-            borderRadius: 10,
-            display: "flex",
-            flexDirection: "column",
-            gap: 6,
-          }}
-        >
-          <div className="row between small" style={{ alignItems: "center" }}>
-            <div className="row" style={{ gap: 6, alignItems: "center" }}>
-              <span style={{ fontSize: 14 }}>🌱</span>
-              <span style={{ fontWeight: 600, color: "#6366f1", fontSize: 12 }}>
-                {activeReflection.adaptation_candidates.length > 0 ? "Learned Planning Pattern" : "Daily Reflection"}
-              </span>
-              <span className="small muted" style={{ fontSize: 11 }}>
-                • {activeReflection.tasks_completed_count}/{activeReflection.tasks_planned_count} tasks completed
-                {activeReflection.tasks_postponed_count > 0 ? `, ${activeReflection.tasks_postponed_count} postponed` : ""}
-              </span>
-            </div>
-            <button
-              className="ghost small"
-              onClick={() => handleDismissReflection(activeReflection.id)}
-              style={{
-                padding: "0 4px",
-                fontSize: 11,
-                opacity: 0.7,
-                cursor: "pointer",
-                border: "none",
-                background: "transparent",
-              }}
-              title="Dismiss reflection"
-            >
-              ✕
-            </button>
-          </div>
-
-          {activeReflection.adaptation_candidates.length > 0 ? (
-            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-              <div style={{ fontWeight: 600, fontSize: 13 }}>
-                {activeReflection.adaptation_candidates[0].title}
-              </div>
-              <p className="small" style={{ margin: "2px 0", lineHeight: 1.4, color: "var(--text)" }}>
-                {activeReflection.adaptation_candidates[0].explanation}
-              </p>
-              <div className="row" style={{ gap: 8, marginTop: 4 }}>
-                <button
-                  className="primary small"
-                  disabled={applyingAdaptationId === activeReflection.adaptation_candidates[0].id}
-                  onClick={() => handleApplyAdaptation(activeReflection.adaptation_candidates[0])}
-                  style={{ fontSize: 11, padding: "3px 10px" }}
-                >
-                  {applyingAdaptationId === activeReflection.adaptation_candidates[0].id
-                    ? "Applying…"
-                    : activeReflection.adaptation_candidates[0].suggested_action?.label || "Use This in Future Plans"}
-                </button>
-                <button
-                  className="ghost small"
-                  onClick={() => handleDismissReflection(activeReflection.id)}
-                  style={{ fontSize: 11, padding: "3px 8px" }}
-                >
-                  Not now
-                </button>
-              </div>
-            </div>
-          ) : activeReflection.reflection_prompt ? (
-            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-              <p className="small" style={{ margin: "2px 0", lineHeight: 1.4, color: "var(--text)" }}>
-                {activeReflection.reflection_prompt.message}
-              </p>
-              <div className="row" style={{ gap: 8, marginTop: 4 }}>
-                {activeReflection.reflection_prompt.suggested_action && (
-                  <button
-                    className="primary small"
-                    onClick={() => {
-                      const prompt = activeReflection.reflection_prompt!.suggested_action!.prompt;
-                      handleDismissReflection(activeReflection.id);
-                      setInput(prompt);
-                    }}
-                    style={{ fontSize: 11, padding: "3px 8px" }}
-                  >
-                    {activeReflection.reflection_prompt.suggested_action.label}
-                  </button>
-                )}
-                <button
-                  className="ghost small"
-                  onClick={() => handleDismissReflection(activeReflection.id)}
-                  style={{ fontSize: 11, padding: "3px 8px" }}
-                >
-                  Dismiss
-                </button>
-              </div>
-            </div>
-          ) : null}
-        </div>
-      )}
-
-      {/* Weekly Review Summary Card */}
-      {activeReview && !filterDismissedReview(activeReview) && (
-        <div
-          style={{
-            marginBottom: 10,
-            padding: "10px 12px",
-            background: "color-mix(in srgb, #0ea5e9 8%, var(--surface))",
-            border: "1px solid color-mix(in srgb, #0ea5e9 28%, var(--border))",
-            borderRadius: 10,
-            display: "flex",
-            flexDirection: "column",
-            gap: 6,
-          }}
-        >
-          <div className="row between small" style={{ alignItems: "center" }}>
-            <div className="row" style={{ gap: 6, alignItems: "center" }}>
-              <span style={{ fontSize: 14 }}>📊</span>
-              <span style={{ fontWeight: 600, color: "#0284c7", fontSize: 12 }}>
-                Weekly Review ({activeReview.period.label})
-              </span>
-              <span className="small muted" style={{ fontSize: 11 }}>
-                • {activeReview.priority_progress.high_priority_completed}/{activeReview.priority_progress.high_priority_completed + activeReview.priority_progress.high_priority_open} high-priority done
-                {activeReview.execution_consistency.completion_rate_percent !== null ? ` • ${activeReview.execution_consistency.completion_rate_percent}% completion` : ""}
-              </span>
-            </div>
-            <button
-              className="ghost small"
-              onClick={() => handleDismissReview(activeReview.signature || activeReview.id)}
-              style={{
-                padding: "0 4px",
-                fontSize: 11,
-                opacity: 0.7,
-                cursor: "pointer",
-                border: "none",
-                background: "transparent",
-              }}
-              title="Dismiss weekly review"
-            >
-              ✕
-            </button>
-          </div>
-
-          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-            {activeReview.insights.length > 0 && (
-              <p className="small" style={{ margin: "2px 0", lineHeight: 1.4, color: "var(--text)" }}>
-                {activeReview.insights[0].message}
-              </p>
-            )}
-            <div className="row" style={{ gap: 8, marginTop: 4 }}>
-              <button
-                className="primary small"
-                onClick={() => {
-                  handleDismissReview(activeReview.signature || activeReview.id);
-                  setInput("Review my past week and give me practical coaching insights.");
-                }}
-                style={{ fontSize: 11, padding: "3px 10px" }}
-              >
-                Review Full Week
-              </button>
-              <button
-                className="ghost small"
-                onClick={() => handleDismissReview(activeReview.signature || activeReview.id)}
-                style={{ fontSize: 11, padding: "3px 8px" }}
-              >
-                Dismiss
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Messages Scroll Area */}
       <div
         ref={scrollRef}
         style={{
@@ -1149,6 +915,75 @@ export function CoachChat() {
                 alignItems: m.role === "user" ? "flex-end" : "flex-start",
               }}
             >
+              {/* Instant Recommendation Card within message */}
+              {m.instantRecommendation && (
+                <div
+                  style={{
+                    width: "85%",
+                    marginBottom: 8,
+                    padding: "12px 14px",
+                    background: "color-mix(in srgb, #10b981 10%, var(--surface))",
+                    border: "1.5px solid color-mix(in srgb, #10b981 35%, var(--border))",
+                    borderRadius: 12,
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 8,
+                  }}
+                >
+                  <div className="row between small" style={{ alignItems: "center" }}>
+                    <div className="row" style={{ gap: 6, alignItems: "center" }}>
+                      <span style={{ fontSize: 15 }}>🎯</span>
+                      <span style={{ fontWeight: 700, color: "#059669", fontSize: 11, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                        Your Next Move
+                      </span>
+                    </div>
+                  </div>
+
+                  <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                    <div style={{ fontSize: 15, fontWeight: 700 }}>
+                      {m.instantRecommendation.title}
+                    </div>
+                    {m.instantRecommendation.badges.length > 0 && (
+                      <div className="row" style={{ gap: 5, flexWrap: "wrap", margin: "2px 0" }}>
+                        {m.instantRecommendation.badges.map((b, bIdx) => (
+                          <span
+                            key={bIdx}
+                            className="tag"
+                            style={{
+                              fontSize: 11,
+                              padding: "2px 8px",
+                              fontWeight: b.includes("Overdue") ? 600 : 500,
+                              color: b.includes("Overdue") ? "var(--red)" : b.includes("High") ? "var(--red)" : "inherit",
+                              borderColor: b.includes("Overdue") ? "color-mix(in srgb, var(--red) 40%, var(--border))" : undefined,
+                            }}
+                          >
+                            {b}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="row" style={{ gap: 8, marginTop: 2, flexWrap: "wrap", alignItems: "center" }}>
+                    <button
+                      className="primary small"
+                      disabled={startingTaskId === m.instantRecommendation.taskId}
+                      onClick={() => handleStartTask(m.instantRecommendation!.taskId)}
+                      style={{ fontSize: 12, padding: "4px 12px", fontWeight: 600, background: "#059669", borderColor: "#059669" }}
+                    >
+                      {startingTaskId === m.instantRecommendation.taskId ? "Starting…" : "▶ Start task"}
+                    </button>
+                    <button
+                      className="ghost small"
+                      onClick={() => setInput(`Why are you recommending "${m.instantRecommendation!.title}"?`)}
+                      style={{ fontSize: 11, padding: "4px 8px" }}
+                    >
+                      Why this?
+                    </button>
+                  </div>
+                </div>
+              )}
+
               {m.content && (
                 <div
                   style={{
@@ -1427,16 +1262,22 @@ export function CoachChat() {
         )}
 
         {loading && messages[messages.length - 1]?.role === "assistant" && !messages[messages.length - 1]?.content && (
-          <div style={{ display: "flex", alignItems: "flex-start" }}>
+          <div style={{ display: "flex", alignItems: "flex-start", marginTop: messages[messages.length - 1]?.instantRecommendation ? 4 : 0 }}>
             <div
               className="small muted"
               style={{
                 padding: "8px 14px",
                 borderRadius: 12,
                 background: "var(--surface2)",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 8,
               }}
             >
-              Thinking…
+              <span style={{ display: "inline-block", width: 6, height: 6, borderRadius: "50%", background: "var(--accent)" }} />
+              {isInstantRecommendationPending
+                ? "Coach is thinking about why this fits your day best…"
+                : "Coach is thinking…"}
             </div>
           </div>
         )}
@@ -1467,6 +1308,225 @@ export function CoachChat() {
           Send
         </button>
       </div>
+
+      {/* 5. Secondary Information (Today's Plan, Notices, Reflection, Review) */}
+      {(() => {
+        const secondaryCount =
+          (dayPlan?.blocks?.length ? 1 : 0) +
+          (activeTriggers.length > 0 ? 1 : 0) +
+          (activeReflection && !filterDismissedReflection(activeReflection) ? 1 : 0) +
+          (activeReview && !filterDismissedReview(activeReview) ? 1 : 0);
+
+        if (secondaryCount === 0) return null;
+
+        return (
+          <div
+            style={{
+              marginTop: 12,
+              padding: "8px 12px",
+              background: "color-mix(in srgb, var(--surface2) 40%, var(--surface))",
+              border: "1px solid var(--border)",
+              borderRadius: 10,
+            }}
+          >
+            <div
+              className="row between small"
+              style={{ alignItems: "center", cursor: "pointer" }}
+              onClick={() => setShowSecondaryInsights((prev) => !prev)}
+            >
+              <div className="row" style={{ gap: 6, alignItems: "center" }}>
+                <span style={{ fontSize: 13 }}>📋</span>
+                <span style={{ fontWeight: 600, fontSize: 12 }}>
+                  Today's Plan & Intelligence Notices
+                </span>
+                <span className="tag" style={{ fontSize: 10, padding: "1px 6px" }}>
+                  {secondaryCount}
+                </span>
+              </div>
+              <span style={{ fontSize: 11, color: "var(--muted)" }}>
+                {showSecondaryInsights ? "Hide ▲" : "View Details ▼"}
+              </span>
+            </div>
+
+            {showSecondaryInsights && (
+              <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 8, borderTop: "1px solid var(--border)", paddingTop: 8 }}>
+                {/* Today's Plan sub-block */}
+                {dayPlan && dayPlan.blocks.length > 0 && (
+                  <div
+                    style={{
+                      padding: "8px 10px",
+                      background: "var(--surface)",
+                      border: "1px solid var(--border)",
+                      borderRadius: 8,
+                    }}
+                  >
+                    <div className="row between small" style={{ fontWeight: 600, marginBottom: 4 }}>
+                      <span>📅 Today's Plan ({dayPlan.blocks.length} focus block{dayPlan.blocks.length > 1 ? "s" : ""})</span>
+                      {dailyState?.capacity && (
+                        <span className="small muted" style={{ fontSize: 11 }}>
+                          {dailyState.capacity.planned_minutes_today}m planned / {dailyState.capacity.free_minutes_today}m free
+                        </span>
+                      )}
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                      {dayPlan.blocks.map((b, i) => (
+                        <div key={i} className="row between small" style={{ fontSize: 11 }}>
+                          <span>• {b.task_name}</span>
+                          <span className="muted">
+                            {b.start_at.slice(11, 16)} – {b.end_at.slice(11, 16)} ({b.duration_minutes}m)
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Coach Notices sub-block */}
+                {activeTriggers.length > 0 && (
+                  <div
+                    style={{
+                      padding: "8px 10px",
+                      background: "color-mix(in srgb, var(--accent) 8%, var(--surface))",
+                      border: "1px solid color-mix(in srgb, var(--accent) 28%, var(--border))",
+                      borderRadius: 8,
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: 4,
+                    }}
+                  >
+                    <div className="row between small" style={{ alignItems: "center" }}>
+                      <span style={{ fontWeight: 600, color: "var(--accent)", fontSize: 12 }}>
+                        💡 Notice: {activeTriggers[0].title}
+                      </span>
+                      <button
+                        className="ghost small"
+                        onClick={() => handleDismissTrigger(activeTriggers[0].id)}
+                        style={{ padding: "0 4px", fontSize: 11, cursor: "pointer", border: "none", background: "transparent" }}
+                      >
+                        ✕
+                      </button>
+                    </div>
+                    <p className="small" style={{ margin: "2px 0", lineHeight: 1.4, color: "var(--text)" }}>
+                      {activeTriggers[0].message}
+                    </p>
+                    <div className="row" style={{ gap: 8, marginTop: 4 }}>
+                      <button
+                        className="primary small"
+                        onClick={() => handleTriggerAction(activeTriggers[0])}
+                        style={{ fontSize: 11, padding: "2px 8px" }}
+                      >
+                        {activeTriggers[0].suggested_action.label}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Daily Reflection sub-block */}
+                {activeReflection && !filterDismissedReflection(activeReflection) && (
+                  <div
+                    style={{
+                      padding: "8px 10px",
+                      background: "color-mix(in srgb, #6366f1 8%, var(--surface))",
+                      border: "1px solid color-mix(in srgb, #6366f1 28%, var(--border))",
+                      borderRadius: 8,
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: 4,
+                    }}
+                  >
+                    <div className="row between small" style={{ alignItems: "center" }}>
+                      <span style={{ fontWeight: 600, color: "#6366f1", fontSize: 12 }}>
+                        🌱 {activeReflection.adaptation_candidates.length > 0 ? "Learned Planning Pattern" : "Daily Reflection"}
+                      </span>
+                      <button
+                        className="ghost small"
+                        onClick={() => handleDismissReflection(activeReflection.id)}
+                        style={{ padding: "0 4px", fontSize: 11, cursor: "pointer", border: "none", background: "transparent" }}
+                      >
+                        ✕
+                      </button>
+                    </div>
+                    {activeReflection.adaptation_candidates.length > 0 ? (
+                      <div>
+                        <div style={{ fontWeight: 600, fontSize: 12 }}>{activeReflection.adaptation_candidates[0].title}</div>
+                        <p className="small" style={{ margin: "2px 0", lineHeight: 1.3 }}>{activeReflection.adaptation_candidates[0].explanation}</p>
+                        <button
+                          className="primary small"
+                          disabled={applyingAdaptationId === activeReflection.adaptation_candidates[0].id}
+                          onClick={() => handleApplyAdaptation(activeReflection.adaptation_candidates[0])}
+                          style={{ fontSize: 11, padding: "2px 8px", marginTop: 4 }}
+                        >
+                          {applyingAdaptationId === activeReflection.adaptation_candidates[0].id
+                            ? "Applying…"
+                            : activeReflection.adaptation_candidates[0].suggested_action?.label || "Use This"}
+                        </button>
+                      </div>
+                    ) : activeReflection.reflection_prompt ? (
+                      <div>
+                        <p className="small" style={{ margin: "2px 0", lineHeight: 1.3 }}>{activeReflection.reflection_prompt.message}</p>
+                        {activeReflection.reflection_prompt.suggested_action && (
+                          <button
+                            className="primary small"
+                            onClick={() => {
+                              const prompt = activeReflection.reflection_prompt!.suggested_action!.prompt;
+                              handleDismissReflection(activeReflection.id);
+                              setInput(prompt);
+                            }}
+                            style={{ fontSize: 11, padding: "2px 8px", marginTop: 4 }}
+                          >
+                            {activeReflection.reflection_prompt.suggested_action.label}
+                          </button>
+                        )}
+                      </div>
+                    ) : null}
+                  </div>
+                )}
+
+                {/* Weekly Review sub-block */}
+                {activeReview && !filterDismissedReview(activeReview) && (
+                  <div
+                    style={{
+                      padding: "8px 10px",
+                      background: "color-mix(in srgb, #0ea5e9 8%, var(--surface))",
+                      border: "1px solid color-mix(in srgb, #0ea5e9 28%, var(--border))",
+                      borderRadius: 8,
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: 4,
+                    }}
+                  >
+                    <div className="row between small" style={{ alignItems: "center" }}>
+                      <span style={{ fontWeight: 600, color: "#0284c7", fontSize: 12 }}>
+                        📊 Weekly Review ({activeReview.period.label})
+                      </span>
+                      <button
+                        className="ghost small"
+                        onClick={() => handleDismissReview(activeReview.signature || activeReview.id)}
+                        style={{ padding: "0 4px", fontSize: 11, cursor: "pointer", border: "none", background: "transparent" }}
+                      >
+                        ✕
+                      </button>
+                    </div>
+                    {activeReview.insights.length > 0 && (
+                      <p className="small" style={{ margin: "2px 0", lineHeight: 1.3 }}>{activeReview.insights[0].message}</p>
+                    )}
+                    <button
+                      className="primary small"
+                      onClick={() => {
+                        handleDismissReview(activeReview.signature || activeReview.id);
+                        setInput("Review my past week and give me practical coaching insights.");
+                      }}
+                      style={{ fontSize: 11, padding: "2px 8px", alignSelf: "flex-start", marginTop: 2 }}
+                    >
+                      Review Full Week
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })()}
     </div>
   );
 }
