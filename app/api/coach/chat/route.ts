@@ -230,25 +230,50 @@ export async function POST(request: NextRequest) {
         return;
       }
 
+      const MAX_TOOL_TURNS = 5;
+      const requestId = `coach_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+
       try {
         let accumulatedAssistantText = "";
+        let currentMessages: any[] = [...modelMessages];
+        let turnCount = 0;
+        let finished = false;
 
-        // First streaming turn (may invoke tools or stream text)
-        const turnResult = await streamTurn({
-          system: systemPrompt,
-          messages: modelMessages,
-          tools: COACH_TOOLS,
-          maxTokens: 1500,
-          onTextDelta(delta) {
-            accumulatedAssistantText += delta;
-            sendEvent("text", { text: delta });
-          },
-        });
+        while (turnCount < MAX_TOOL_TURNS && !finished) {
+          turnCount++;
 
-        // Handle tool calls if returned by model
-        if (turnResult.toolCalls && turnResult.toolCalls.length > 0) {
+          console.log(
+            `[Coach AI Turn] req=${requestId} turn=${turnCount}/${MAX_TOOL_TURNS} msgs=${currentMessages.length}`
+          );
+
+          const turnResult = await streamTurn({
+            system: systemPrompt,
+            messages: currentMessages,
+            tools: COACH_TOOLS,
+            maxTokens: 1500,
+            onTextDelta(delta) {
+              accumulatedAssistantText += delta;
+              sendEvent("text", { text: delta });
+            },
+          });
+
+          const hasTools = Boolean(turnResult.toolCalls && turnResult.toolCalls.length > 0);
+          const toolNames = hasTools ? turnResult.toolCalls.map((tc) => tc.name).join(",") : "none";
+          const hasThoughtSignature = hasTools
+            ? turnResult.toolCalls.some((tc) => Boolean(tc.thoughtSignature))
+            : false;
+
+          console.log(
+            `[Coach AI Turn Result] req=${requestId} turn=${turnCount} tools=${toolNames} thoughtSignaturePresent=${hasThoughtSignature} textLen=${turnResult.text.length}`
+          );
+
+          if (!hasTools) {
+            finished = true;
+            break;
+          }
+
+          // Execute each tool call exactly once
           const toolResultsForNextTurn: any[] = [];
-
           for (const call of turnResult.toolCalls) {
             const exec = await executeCoachTool(call.name, call.input, currentUserId, supabase);
             if (exec.receipt) {
@@ -262,9 +287,9 @@ export async function POST(request: NextRequest) {
             });
           }
 
-          // Follow-up streaming turn to explain results if needed
-          const followUpMessages: any[] = [
-            ...modelMessages,
+          // Append assistant turn (preserving thoughtSignature) and user tool-results turn
+          currentMessages = [
+            ...currentMessages,
             {
               role: "assistant",
               content: [
@@ -283,16 +308,17 @@ export async function POST(request: NextRequest) {
               content: toolResultsForNextTurn,
             },
           ];
+        }
 
-          await streamTurn({
-            system: systemPrompt,
-            messages: followUpMessages,
-            maxTokens: 1000,
-            onTextDelta(delta) {
-              accumulatedAssistantText += delta;
-              sendEvent("text", { text: delta });
-            },
-          });
+        if (turnCount >= MAX_TOOL_TURNS && !finished) {
+          console.warn(
+            `[Coach AI Turn Limit] req=${requestId} reached MAX_TOOL_TURNS (${MAX_TOOL_TURNS}) without natural text completion`
+          );
+          if (!accumulatedAssistantText.trim()) {
+            const limitNotice = "I have completed processing your request with your current schedule and tasks.";
+            accumulatedAssistantText = limitNotice;
+            sendEvent("text", { text: limitNotice });
+          }
         }
 
         const finalSavedText = accumulatedAssistantText.trim() || "Action completed.";
@@ -305,10 +331,14 @@ export async function POST(request: NextRequest) {
           content: finalSavedText,
         });
 
+        console.log(`[Coach AI Complete] req=${requestId} turns=${turnCount} savedTextLen=${finalSavedText.length}`);
+
         sendEvent("done", { conversationId: activeConvId });
         controller.close();
       } catch (err: any) {
-        console.error("[Coach AI Error]", err?.status || err?.code, err?.message);
+        console.error(
+          `[Coach AI Error] req=${requestId} status=${err?.status || err?.code || "unknown"} msg=${err?.message}`
+        );
         const isUnavailable =
           err?.status === 400 ||
           err?.status === 401 ||
