@@ -205,11 +205,13 @@ export function convertMessagesToGemini(
   return alternating;
 }
 
+export const GEMINI_STREAM_TIMEOUT_MS = 45_000;
+
 /**
  * Executes a Gemini HTTP request with at most 2 total attempts for transient capacity errors (503 / 429).
  * Google Generative Language API occasionally returns 503 (UNAVAILABLE / model overloaded)
  * or 429 (RESOURCE_EXHAUSTED) during momentary capacity spikes.
- * Client errors (400, 401, 403, 404, schema, auth) are never retried.
+ * Client errors (400, 401, 403, 404, schema, auth) and aborted requests are never retried.
  * Retrying happens strictly before any response stream or body is consumed.
  */
 export async function fetchWithTransientRetry(
@@ -218,10 +220,31 @@ export async function fetchWithTransientRetry(
   fetchFn: typeof fetch = fetch,
   delayMs: number = 1000
 ): Promise<Response> {
+  if (init.signal?.aborted) {
+    throw init.signal.reason || new Error("Request aborted");
+  }
   const res = await fetchFn(url, init);
-  if (res.status === 503 || res.status === 429) {
+  if (init.signal?.aborted) {
+    throw init.signal.reason || new Error("Request aborted");
+  }
+  if ((res.status === 503 || res.status === 429) && !init.signal?.aborted) {
     if (delayMs > 0) {
-      await new Promise((resolve) => setTimeout(resolve, delayMs));
+      await new Promise((resolve, reject) => {
+        const timer = setTimeout(resolve, delayMs);
+        if (init.signal) {
+          init.signal.addEventListener(
+            "abort",
+            () => {
+              clearTimeout(timer);
+              reject(init.signal?.reason || new Error("Request aborted"));
+            },
+            { once: true }
+          );
+        }
+      });
+    }
+    if (init.signal?.aborted) {
+      throw init.signal.reason || new Error("Request aborted");
     }
     return fetchFn(url, init);
   }
@@ -406,6 +429,7 @@ export async function streamTurn({
   tools,
   maxTokens = 1500,
   onTextDelta,
+  timeoutMs = GEMINI_STREAM_TIMEOUT_MS,
 }: {
   system?: string;
   messages: Array<{ role: "user" | "assistant"; content: any }>;
@@ -416,6 +440,7 @@ export async function streamTurn({
   }>;
   maxTokens?: number;
   onTextDelta?: (delta: string) => void;
+  timeoutMs?: number;
 }): Promise<ModelTurnResult> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
@@ -448,86 +473,139 @@ export async function streamTurn({
     bodyPayload.tools = geminiTools;
   }
 
-  const res = await fetchWithTransientRetry(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-goog-api-key": apiKey,
-    },
-    body: JSON.stringify(bodyPayload),
-  });
+  const controller = new AbortController();
+  let timedOut = false;
+  const timeoutId = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
 
-  if (!res.ok || !res.body) {
-    const errText = await res.text().catch(() => "");
-    const error: any = new Error(`AI provider error (${res.status}): ${errText}`);
-    error.status = res.status;
-    throw error;
-  }
+  let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
 
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
+  try {
+    const res = await fetchWithTransientRetry(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-goog-api-key": apiKey,
+      },
+      body: JSON.stringify(bodyPayload),
+      signal: controller.signal,
+    });
 
-  let fullText = "";
-  const toolCalls: ToolCall[] = [];
-  let stopReason = "stop";
-  let currentThoughtSignature: string | undefined;
+    if (!res.ok || !res.body) {
+      const errText = await res.text().catch(() => "");
+      const error: any = new Error(`AI provider error (${res.status}): ${errText}`);
+      error.status = res.status;
+      throw error;
+    }
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
+    reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
 
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split("\n");
-    buffer = lines.pop() || "";
+    let fullText = "";
+    const toolCalls: ToolCall[] = [];
+    let stopReason = "stop";
+    let currentThoughtSignature: string | undefined;
 
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (!trimmed.startsWith("data: ")) continue;
-      const dataStr = trimmed.slice(6);
-      if (dataStr === "[DONE]") continue;
-
-      let eventData: any;
-      try {
-        eventData = JSON.parse(dataStr);
-      } catch {
-        continue;
+    while (true) {
+      if (controller.signal.aborted) {
+        throw new Error("AbortError");
       }
 
-      const candidate = eventData.candidates?.[0];
-      if (candidate?.finishReason) {
-        stopReason = candidate.finishReason;
-      }
-
-      const parts = candidate?.content?.parts || [];
-      for (const part of parts) {
-        if (part.thoughtSignature) {
-          currentThoughtSignature = part.thoughtSignature;
+      const readPromise = reader.read();
+      const abortPromise = new Promise<{ done: boolean; value: undefined }>((_, reject) => {
+        if (controller.signal.aborted) {
+          reject(new Error("AbortError"));
+          return;
         }
-        if (part.text) {
-          fullText += part.text;
-          if (onTextDelta) {
-            onTextDelta(part.text);
+        controller.signal.addEventListener(
+          "abort",
+          () => {
+            reject(new Error("AbortError"));
+          },
+          { once: true }
+        );
+      });
+
+      const { done, value } = await Promise.race([readPromise, abortPromise]);
+      if (done) break;
+
+      if (value) {
+        buffer += decoder.decode(value, { stream: true });
+      }
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed.startsWith("data: ")) continue;
+        const dataStr = trimmed.slice(6);
+        if (dataStr === "[DONE]") continue;
+
+        let eventData: any;
+        try {
+          eventData = JSON.parse(dataStr);
+        } catch {
+          continue;
+        }
+
+        const candidate = eventData.candidates?.[0];
+        if (candidate?.finishReason) {
+          stopReason = candidate.finishReason;
+        }
+
+        const parts = candidate?.content?.parts || [];
+        for (const part of parts) {
+          if (part.thoughtSignature) {
+            currentThoughtSignature = part.thoughtSignature;
           }
-        }
-        if (part.functionCall) {
-          const signature = part.thoughtSignature || currentThoughtSignature;
-          toolCalls.push({
-            id: part.functionCall.id || `call_${toolCalls.length + 1}_${part.functionCall.name}`,
-            name: part.functionCall.name,
-            input: part.functionCall.args || {},
-            ...(signature ? { thoughtSignature: signature } : {}),
-          });
+          if (part.text) {
+            fullText += part.text;
+            if (onTextDelta) {
+              onTextDelta(part.text);
+            }
+          }
+          if (part.functionCall) {
+            const signature = part.thoughtSignature || currentThoughtSignature;
+            toolCalls.push({
+              id: part.functionCall.id || `call_${toolCalls.length + 1}_${part.functionCall.name}`,
+              name: part.functionCall.name,
+              input: part.functionCall.args || {},
+              ...(signature ? { thoughtSignature: signature } : {}),
+            });
+          }
         }
       }
     }
-  }
 
-  return {
-    text: fullText.trim(),
-    toolCalls,
-    stopReason: stopReason.toLowerCase(),
-  };
+    return {
+      text: fullText.trim(),
+      toolCalls,
+      stopReason: stopReason.toLowerCase(),
+    };
+  } catch (err: any) {
+    if (timedOut || controller.signal.aborted || err?.name === "AbortError" || err?.message === "AbortError") {
+      const timeoutError: any = new Error(
+        `Gemini stream timed out after ${timeoutMs}ms while waiting for response`
+      );
+      timeoutError.status = 504;
+      timeoutError.code = "ETIMEDOUT";
+      throw timeoutError;
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeoutId);
+    if (reader) {
+      try {
+        await reader.cancel().catch(() => {});
+      } catch {}
+      try {
+        reader.releaseLock();
+      } catch {}
+    }
+  }
 }
 
 /**
