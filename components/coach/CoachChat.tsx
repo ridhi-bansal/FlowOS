@@ -45,6 +45,7 @@ export function CoachChat() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [progressMessage, setProgressMessage] = useState<string | null>(null);
   const [isInstantRecommendationPending, setIsInstantRecommendationPending] = useState(false);
   const [conversationId, setConversationId] = useState<string | undefined>(undefined);
   const [mode, setMode] = useState<CoachMode>("coach");
@@ -533,7 +534,10 @@ export function CoachChat() {
           try {
             const data = JSON.parse(dataStr);
 
-            if (eventType === "text" && data.text) {
+            if (eventType === "progress" && data.message) {
+              setProgressMessage(data.message);
+            } else if (eventType === "text" && data.text) {
+              setProgressMessage(null);
               setMessages((prev) => {
                 const updated = [...prev];
                 const last = updated[updated.length - 1];
@@ -564,10 +568,12 @@ export function CoachChat() {
                 window.dispatchEvent(new CustomEvent("flowos:data-updated"));
               }
             } else if (eventType === "done") {
+              setProgressMessage(null);
               if (data.conversationId) {
                 setConversationId(data.conversationId);
               }
             } else if (eventType === "error") {
+              setProgressMessage(null);
               setMessages((prev) => {
                 const updated = [...prev];
                 const last = updated[updated.length - 1];
@@ -596,6 +602,7 @@ export function CoachChat() {
       });
     } finally {
       setLoading(false);
+      setProgressMessage(null);
       setIsInstantRecommendationPending(false);
     }
   }
@@ -1275,7 +1282,9 @@ export function CoachChat() {
               }}
             >
               <span style={{ display: "inline-block", width: 6, height: 6, borderRadius: "50%", background: "var(--accent)" }} />
-              {isInstantRecommendationPending
+              {progressMessage
+                ? progressMessage
+                : isInstantRecommendationPending
                 ? "Coach is thinking about why this fits your day best…"
                 : "Coach is thinking…"}
             </div>

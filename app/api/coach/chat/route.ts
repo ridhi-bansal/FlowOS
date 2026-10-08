@@ -230,8 +230,39 @@ export async function POST(request: NextRequest) {
         return;
       }
 
+      const COACH_REQUEST_TIMEOUT_MS = 25_000;
+      const requestDeadline = Date.now() + COACH_REQUEST_TIMEOUT_MS;
       const MAX_TOOL_TURNS = 5;
       const requestId = `coach_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+
+      function getToolProgressMessage(toolName: string): string {
+        switch (toolName) {
+          case "plan_day":
+          case "replan_remaining_day":
+            return "Planning your day schedule…";
+          case "create_task":
+          case "update_task":
+          case "complete_task":
+          case "break_down_task":
+          case "create_subtasks":
+            return "Checking your tasks…";
+          case "create_native_time_block":
+          case "apply_day_plan":
+          case "apply_remaining_day_plan":
+            return "Checking your schedule…";
+          case "review_recent_period":
+            return "Reviewing recent progress…";
+          case "start_task":
+            return "Preparing task execution…";
+          case "apply_adaptation":
+            return "Updating your planning preferences…";
+          default:
+            return "Checking your productivity context…";
+        }
+      }
+
+      const TIMEOUT_FALLBACK_TEXT =
+        "I couldn't finish the full analysis in time. Your Next Move is still available above.";
 
       try {
         let accumulatedAssistantText = "";
@@ -240,27 +271,53 @@ export async function POST(request: NextRequest) {
         let finished = false;
 
         while (turnCount < MAX_TOOL_TURNS && !finished) {
+          const remainingBeforeTurn = requestDeadline - Date.now();
+          if (remainingBeforeTurn <= 2000) {
+            console.warn(
+              `[Coach AI Deadline] req=${requestId} remaining=${remainingBeforeTurn}ms below threshold before turn ${turnCount + 1}`
+            );
+            break;
+          }
+
           turnCount++;
+          // Turn timeout is the smaller of remaining budget or 20s
+          const turnTimeoutMs = Math.min(remainingBeforeTurn, 20_000);
 
           console.log(
-            `[Coach AI Turn] req=${requestId} turn=${turnCount}/${MAX_TOOL_TURNS} msgs=${currentMessages.length}`
+            `[Coach AI Turn] req=${requestId} turn=${turnCount}/${MAX_TOOL_TURNS} msgs=${currentMessages.length} timeoutMs=${turnTimeoutMs}`
           );
 
-          const turnResult = await streamTurn({
-            system: systemPrompt,
-            messages: currentMessages,
-            tools: COACH_TOOLS,
-            maxTokens: 1500,
-            onTextDelta(delta) {
-              accumulatedAssistantText += delta;
-              sendEvent("text", { text: delta });
-            },
-          });
+          let turnResult: any;
+          try {
+            turnResult = await streamTurn({
+              system: systemPrompt,
+              messages: currentMessages,
+              tools: COACH_TOOLS,
+              maxTokens: 1500,
+              timeoutMs: turnTimeoutMs,
+              onTextDelta(delta) {
+                accumulatedAssistantText += delta;
+                sendEvent("text", { text: delta });
+              },
+            });
+          } catch (turnErr: any) {
+            // If turn failed due to timeout and total request budget is exhausted, handle gracefully
+            if (
+              (turnErr?.status === 504 || turnErr?.code === "ETIMEDOUT") &&
+              requestDeadline - Date.now() <= 3000
+            ) {
+              console.warn(
+                `[Coach AI Turn Timeout] req=${requestId} turn=${turnCount} hit deadline limit`
+              );
+              break;
+            }
+            throw turnErr;
+          }
 
           const hasTools = Boolean(turnResult.toolCalls && turnResult.toolCalls.length > 0);
-          const toolNames = hasTools ? turnResult.toolCalls.map((tc) => tc.name).join(",") : "none";
+          const toolNames = hasTools ? turnResult.toolCalls.map((tc: any) => tc.name).join(",") : "none";
           const hasThoughtSignature = hasTools
-            ? turnResult.toolCalls.some((tc) => Boolean(tc.thoughtSignature))
+            ? turnResult.toolCalls.some((tc: any) => Boolean(tc.thoughtSignature))
             : false;
 
           console.log(
@@ -270,6 +327,21 @@ export async function POST(request: NextRequest) {
           if (!hasTools) {
             finished = true;
             break;
+          }
+
+          // Check budget before executing tools
+          const remainingBeforeTools = requestDeadline - Date.now();
+          if (remainingBeforeTools <= 2000) {
+            console.warn(
+              `[Coach AI Deadline] req=${requestId} remaining=${remainingBeforeTools}ms insufficient for tool execution`
+            );
+            break;
+          }
+
+          // Emit minimal truthful progress event for the tools being executed
+          const primaryTool = turnResult.toolCalls[0]?.name;
+          if (primaryTool) {
+            sendEvent("progress", { message: getToolProgressMessage(primaryTool) });
           }
 
           // Execute each tool call exactly once
@@ -287,6 +359,15 @@ export async function POST(request: NextRequest) {
             });
           }
 
+          // Check budget after tool execution before committing to another Gemini turn
+          const remainingAfterTools = requestDeadline - Date.now();
+          if (remainingAfterTools <= 2500) {
+            console.warn(
+              `[Coach AI Deadline] req=${requestId} remaining=${remainingAfterTools}ms insufficient for next model turn`
+            );
+            break;
+          }
+
           // Append assistant turn (preserving thoughtSignature) and user tool-results turn
           currentMessages = [
             ...currentMessages,
@@ -294,7 +375,7 @@ export async function POST(request: NextRequest) {
               role: "assistant",
               content: [
                 ...(turnResult.text ? [{ type: "text", text: turnResult.text }] : []),
-                ...turnResult.toolCalls.map((tc) => ({
+                ...turnResult.toolCalls.map((tc: any) => ({
                   type: "tool_use",
                   id: tc.id,
                   name: tc.name,
@@ -310,18 +391,23 @@ export async function POST(request: NextRequest) {
           ];
         }
 
-        if (turnCount >= MAX_TOOL_TURNS && !finished) {
-          console.warn(
-            `[Coach AI Turn Limit] req=${requestId} reached MAX_TOOL_TURNS (${MAX_TOOL_TURNS}) without natural text completion`
-          );
-          if (!accumulatedAssistantText.trim()) {
+        if (!finished && !accumulatedAssistantText.trim()) {
+          const remainingAtEnd = requestDeadline - Date.now();
+          if (remainingAtEnd <= 3000) {
+            // Request budget was exhausted before text completion
+            accumulatedAssistantText = TIMEOUT_FALLBACK_TEXT;
+            sendEvent("text", { text: TIMEOUT_FALLBACK_TEXT });
+          } else if (turnCount >= MAX_TOOL_TURNS) {
+            console.warn(
+              `[Coach AI Turn Limit] req=${requestId} reached MAX_TOOL_TURNS (${MAX_TOOL_TURNS}) without natural text completion`
+            );
             const limitNotice = "I have completed processing your request with your current schedule and tasks.";
             accumulatedAssistantText = limitNotice;
             sendEvent("text", { text: limitNotice });
           }
         }
 
-        const finalSavedText = accumulatedAssistantText.trim() || "Action completed.";
+        const finalSavedText = accumulatedAssistantText.trim() || TIMEOUT_FALLBACK_TEXT;
 
         // Persist complete assistant message to Supabase
         await supabase.from("coach_messages").insert({
@@ -339,18 +425,28 @@ export async function POST(request: NextRequest) {
         console.error(
           `[Coach AI Error] req=${requestId} status=${err?.status || err?.code || "unknown"} msg=${err?.message}`
         );
-        const isUnavailable =
-          err?.status === 400 ||
-          err?.status === 401 ||
-          err?.status === 403 ||
-          err?.status === 404 ||
-          err?.status === 429 ||
-          (err?.status && err.status >= 500) ||
-          err?.code === "ENOTFOUND" ||
-          Boolean(err?.message?.includes("API_KEY"));
-        const message = isUnavailable
-          ? "Coach AI is temporarily unavailable. Your tasks and schedule are still available."
-          : (err?.message || "Coach AI is temporarily unavailable. Your tasks and schedule are still available.");
+        const isTimeout =
+          err?.status === 504 ||
+          err?.code === "ETIMEDOUT" ||
+          requestDeadline - Date.now() <= 1000;
+
+        let message: string;
+        if (isTimeout) {
+          message = TIMEOUT_FALLBACK_TEXT;
+        } else {
+          const isUnavailable =
+            err?.status === 400 ||
+            err?.status === 401 ||
+            err?.status === 403 ||
+            err?.status === 404 ||
+            err?.status === 429 ||
+            (err?.status && err.status >= 500) ||
+            err?.code === "ENOTFOUND" ||
+            Boolean(err?.message?.includes("API_KEY"));
+          message = isUnavailable
+            ? "Coach AI is temporarily unavailable. Your tasks and schedule are still available."
+            : (err?.message || "Coach AI is temporarily unavailable. Your tasks and schedule are still available.");
+        }
         sendEvent("error", { message });
         controller.close();
       }

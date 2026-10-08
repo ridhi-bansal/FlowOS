@@ -205,14 +205,14 @@ export function convertMessagesToGemini(
   return alternating;
 }
 
-export const GEMINI_STREAM_TIMEOUT_MS = 45_000;
+export const GEMINI_STREAM_TIMEOUT_MS = 20_000;
 
 /**
  * Executes a Gemini HTTP request with at most 2 total attempts for transient capacity errors (503 / 429).
  * Google Generative Language API occasionally returns 503 (UNAVAILABLE / model overloaded)
  * or 429 (RESOURCE_EXHAUSTED) during momentary capacity spikes.
  * Client errors (400, 401, 403, 404, schema, auth) and aborted requests are never retried.
- * Retrying happens strictly before any response stream or body is consumed.
+ * Retrying happens strictly before any response stream or body is consumed and respects the request deadline signal.
  */
 export async function fetchWithTransientRetry(
   url: string,

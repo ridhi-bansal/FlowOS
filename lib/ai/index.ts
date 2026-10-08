@@ -118,6 +118,7 @@ export async function streamTurn(options: {
   }>;
   maxTokens?: number;
   onTextDelta?: (delta: string) => void;
+  timeoutMs?: number;
 }): Promise<ModelTurnResult> {
   const provider = getActiveAiProvider();
   if (provider === "gemini") {
