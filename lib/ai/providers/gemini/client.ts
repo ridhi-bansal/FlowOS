@@ -208,7 +208,8 @@ export function convertMessagesToGemini(
 export const GEMINI_STREAM_TIMEOUT_MS = 20_000;
 
 /**
- * Executes a Gemini HTTP request with at most 2 total attempts for transient capacity errors (503 / 429).
+ * Executes a Gemini HTTP request with at most 3 total attempts for transient capacity errors (503 / 429).
+ * Attempt 1 -> 503/429 -> wait 1s -> Attempt 2 -> 503/429 -> wait 2s -> Attempt 3 -> return final response.
  * Google Generative Language API occasionally returns 503 (UNAVAILABLE / model overloaded)
  * or 429 (RESOURCE_EXHAUSTED) during momentary capacity spikes.
  * Client errors (400, 401, 403, 404, schema, auth) and aborted requests are never retried.
@@ -218,37 +219,54 @@ export async function fetchWithTransientRetry(
   url: string,
   init: RequestInit,
   fetchFn: typeof fetch = fetch,
-  delayMs: number = 1000
+  delays: number[] = [1000, 2000]
 ): Promise<Response> {
-  if (init.signal?.aborted) {
-    throw init.signal.reason || new Error("Request aborted");
-  }
-  const res = await fetchFn(url, init);
-  if (init.signal?.aborted) {
-    throw init.signal.reason || new Error("Request aborted");
-  }
-  if ((res.status === 503 || res.status === 429) && !init.signal?.aborted) {
-    if (delayMs > 0) {
-      await new Promise((resolve, reject) => {
-        const timer = setTimeout(resolve, delayMs);
-        if (init.signal) {
-          init.signal.addEventListener(
-            "abort",
-            () => {
-              clearTimeout(timer);
-              reject(init.signal?.reason || new Error("Request aborted"));
-            },
-            { once: true }
-          );
-        }
-      });
-    }
+  const maxAttempts = delays.length + 1; // 3 attempts by default
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     if (init.signal?.aborted) {
       throw init.signal.reason || new Error("Request aborted");
     }
-    return fetchFn(url, init);
+
+    const res = await fetchFn(url, init);
+
+    if (init.signal?.aborted) {
+      throw init.signal.reason || new Error("Request aborted");
+    }
+
+    const isTransient = res.status === 503 || res.status === 429;
+    const hasMoreAttempts = attempt < maxAttempts;
+
+    if (isTransient && hasMoreAttempts && !init.signal?.aborted) {
+      const delayMs = delays[attempt - 1] ?? 1000;
+      console.log(`[Gemini Retry] attempt=${attempt + 1} status=${res.status}`);
+
+      if (delayMs > 0) {
+        await new Promise((resolve, reject) => {
+          const timer = setTimeout(resolve, delayMs);
+          if (init.signal) {
+            init.signal.addEventListener(
+              "abort",
+              () => {
+                clearTimeout(timer);
+                reject(init.signal?.reason || new Error("Request aborted"));
+              },
+              { once: true }
+            );
+          }
+        });
+      }
+
+      if (init.signal?.aborted) {
+        throw init.signal.reason || new Error("Request aborted");
+      }
+      continue;
+    }
+
+    return res;
   }
-  return res;
+
+  throw new Error("Unexpected retry loop termination");
 }
 
 /**
